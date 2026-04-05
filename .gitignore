@@ -1,5 +1,6 @@
 .DS_Store
 .pytest_cache/
+.playwright-cli/
 .venv/
 __pycache__/
 .coverage
