@@ -1,0 +1,284 @@
+from __future__ import annotations
+
+import argparse
+from .labels import Task
+
+
+def _task(value: str) -> Task:
+    return Task(value)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="he-quality",
+        description="Installable CLI for H&E quality assessment and artifact detection.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    convert_wsi = subparsers.add_parser("convert-wsi", help="Convert raw TIFF slides into pyramidal TIFFs with libvips.")
+    convert_wsi.add_argument("--dataset-dir", required=True)
+    convert_wsi.add_argument("--output-dir", required=True)
+    convert_wsi.add_argument("--quality", type=int, default=90)
+
+    manifest = subparsers.add_parser("build-manifest", help="Write a TRIDENT custom WSI manifest CSV.")
+    manifest.add_argument("--wsi-dir", required=True)
+    manifest.add_argument("--output-csv", required=True)
+    manifest.add_argument("--mpp", type=float, required=True)
+
+    trident = subparsers.add_parser("run-trident", help="Run TRIDENT over a WSI manifest.")
+    trident.add_argument("--trident-dir", required=True)
+    trident.add_argument("--wsi-dir", required=True)
+    trident.add_argument("--custom-wsi-csv", required=True)
+    trident.add_argument("--job-dir", required=True)
+    trident.add_argument("--patch-encoder", required=True, choices=["uni_v2", "conch_v1"])
+    trident.add_argument("--mag", type=int, default=10)
+    trident.add_argument("--patch-size", type=int, default=512)
+    trident.add_argument("--task", default="all")
+    trident.add_argument("--gpu", type=int)
+
+    merge = subparsers.add_parser("merge-embeddings", help="Concatenate matching UNI and CONCH H5 features.")
+    merge.add_argument("--feature-dir-a", required=True)
+    merge.add_argument("--feature-dir-b", required=True)
+    merge.add_argument("--output-dir", required=True)
+
+    cache = subparsers.add_parser("cache-tiles", help="Cache labeled tiles to local .pt tensors for downstream training.")
+    cache.add_argument("--wsi-dir", required=True)
+    cache.add_argument("--label-dir", required=True)
+    cache.add_argument("--splits-json", required=True)
+    cache.add_argument("--task", required=True, type=_task, choices=list(Task))
+    cache.add_argument("--tile-cache-dir", required=True)
+    cache.add_argument("--wsi-cache-dir", required=True)
+    cache.add_argument("--patch-size-level0", type=int, default=3072)
+    cache.add_argument("--target-patch-size", type=int, default=512)
+
+    handcrafted = subparsers.add_parser("extract-handcrafted", help="Extract handcrafted KBA features from cached tiles.")
+    handcrafted.add_argument("--meta-csv", required=True)
+    handcrafted.add_argument("--output-csv", required=True)
+
+    select = subparsers.add_parser("fit-fusion-selection", help="Fit Spearman feature selection for handcrafted + embedding fusion.")
+    select.add_argument("--hc-csv", required=True)
+    select.add_argument("--h5-dir", required=True)
+    select.add_argument("--selection-json", required=True)
+    select.add_argument("--task", required=True, type=_task, choices=list(Task))
+    select.add_argument("--threshold", type=float, default=0.08)
+
+    apply_selection = subparsers.add_parser("apply-fusion-selection", help="Apply saved selection indices and write fused NPZ files.")
+    apply_selection.add_argument("--hc-csv", required=True)
+    apply_selection.add_argument("--h5-dir", required=True)
+    apply_selection.add_argument("--selection-json", required=True)
+    apply_selection.add_argument("--output-dir", required=True)
+
+    sklearn_train = subparsers.add_parser("train-sklearn", help="Train an sklearn baseline from handcrafted CSV features.")
+    sklearn_train.add_argument("--train-csv", required=True)
+    sklearn_train.add_argument("--val-csv", required=True)
+    sklearn_train.add_argument("--test-csv", required=True)
+    sklearn_train.add_argument("--output-dir", required=True)
+    sklearn_train.add_argument("--task", required=True, type=_task, choices=list(Task))
+    sklearn_train.add_argument("--estimator", default="svm", choices=["svm", "xgb"])
+    sklearn_train.add_argument("--balance-train", action="store_true")
+    sklearn_train.add_argument("--max-train-per-class", type=int)
+    sklearn_train.add_argument("--experiment-name", default="feature_classifier")
+
+    resnet = subparsers.add_parser("train-resnet", help="Train a ResNet classifier from cached tile tensors.")
+    resnet.add_argument("--train-meta-csv", required=True)
+    resnet.add_argument("--val-meta-csv", required=True)
+    resnet.add_argument("--test-meta-csv", required=True)
+    resnet.add_argument("--output-dir", required=True)
+    resnet.add_argument("--task", required=True, type=_task, choices=list(Task))
+    resnet.add_argument("--arch", default="resnet50", choices=["resnet18", "resnet34", "resnet50"])
+    resnet.add_argument("--batch-size", type=int, default=32)
+    resnet.add_argument("--epochs", type=int, default=10)
+    resnet.add_argument("--lr", type=float, default=1e-4)
+    resnet.add_argument("--balance-train", action="store_true")
+    resnet.add_argument("--pretrained", action="store_true")
+    resnet.add_argument("--experiment-name", default="resnet_classifier")
+
+    embedding = subparsers.add_parser("train-embedding", help="Train an MLP or KAN classifier from H5 or fused NPZ features.")
+    embedding.add_argument("--output-dir", required=True)
+    embedding.add_argument("--task", required=True, type=_task, choices=list(Task))
+    embedding.add_argument("--source-kind", required=True, choices=["h5", "npz"])
+    embedding.add_argument("--model-kind", default="mlp", choices=["mlp", "kan"])
+    embedding.add_argument("--hidden-dim", type=int, default=512)
+    embedding.add_argument("--batch-size", type=int, default=256)
+    embedding.add_argument("--epochs", type=int, default=20)
+    embedding.add_argument("--lr", type=float, default=1e-3)
+    embedding.add_argument("--balance-train", action="store_true")
+    embedding.add_argument("--experiment-name", default="embedding_classifier")
+    embedding.add_argument("--feature-dir")
+    embedding.add_argument("--label-dir")
+    embedding.add_argument("--splits-json")
+    embedding.add_argument("--train-dir")
+    embedding.add_argument("--val-dir")
+    embedding.add_argument("--test-dir")
+
+    return parser
+
+
+def _handle_convert_wsi(args: argparse.Namespace) -> None:
+    from .trident import convert_to_pyramidal_tiffs
+
+    convert_to_pyramidal_tiffs(args.dataset_dir, args.output_dir, quality=args.quality)
+
+
+def _handle_build_manifest(args: argparse.Namespace) -> None:
+    from .trident import write_custom_wsi_manifest
+
+    write_custom_wsi_manifest(args.wsi_dir, args.output_csv, mpp=args.mpp)
+
+
+def _handle_run_trident(args: argparse.Namespace) -> None:
+    from .trident import run_trident_batch
+
+    run_trident_batch(
+        args.trident_dir,
+        wsi_dir=args.wsi_dir,
+        custom_wsi_csv=args.custom_wsi_csv,
+        job_dir=args.job_dir,
+        patch_encoder=args.patch_encoder,
+        mag=args.mag,
+        patch_size=args.patch_size,
+        task=args.task,
+        gpu=args.gpu,
+    )
+
+
+def _handle_merge_embeddings(args: argparse.Namespace) -> None:
+    from .trident import merge_feature_h5
+
+    merge_feature_h5(args.feature_dir_a, args.feature_dir_b, args.output_dir)
+
+
+def _handle_cache_tiles(args: argparse.Namespace) -> None:
+    from .tiles import TileCachingConfig, build_tile_dataframe, cache_tiles_to_disk, split_tile_dataframe
+
+    frame, splits = build_tile_dataframe(
+        args.wsi_dir,
+        args.label_dir,
+        task=args.task,
+        splits_json=args.splits_json,
+        patch_size_level0=args.patch_size_level0,
+    )
+    split_frames = split_tile_dataframe(frame, splits)
+    config = TileCachingConfig(
+        patch_size_level0=args.patch_size_level0,
+        target_patch_size=args.target_patch_size,
+    )
+    for split_name, split_frame in split_frames.items():
+        cache_tiles_to_disk(
+            split_frame,
+            split_name=split_name,
+            tile_cache_dir=args.tile_cache_dir,
+            wsi_cache_dir=args.wsi_cache_dir,
+            config=config,
+        )
+
+
+def _handle_extract_handcrafted(args: argparse.Namespace) -> None:
+    from .handcrafted import featurize_meta_csv
+
+    featurize_meta_csv(args.meta_csv, args.output_csv)
+
+
+def _handle_fit_fusion_selection(args: argparse.Namespace) -> None:
+    from .fusion import fit_spearman_selection
+
+    fit_spearman_selection(
+        args.hc_csv,
+        args.h5_dir,
+        args.selection_json,
+        threshold=args.threshold,
+        task=args.task,
+    )
+
+
+def _handle_apply_fusion_selection(args: argparse.Namespace) -> None:
+    from .fusion import apply_selection_and_write_npz
+
+    apply_selection_and_write_npz(args.hc_csv, args.h5_dir, args.output_dir, args.selection_json)
+
+
+def _handle_train_sklearn(args: argparse.Namespace) -> None:
+    from .train_sklearn import train_feature_classifier
+
+    train_feature_classifier(
+        args.train_csv,
+        args.val_csv,
+        args.test_csv,
+        output_dir=args.output_dir,
+        task=args.task,
+        estimator=args.estimator,
+        balance_train=args.balance_train,
+        max_train_per_class=args.max_train_per_class,
+        experiment_name=args.experiment_name,
+    )
+
+
+def _handle_train_resnet(args: argparse.Namespace) -> None:
+    from .train_torch import train_resnet_classifier
+
+    train_resnet_classifier(
+        train_meta_csv=args.train_meta_csv,
+        val_meta_csv=args.val_meta_csv,
+        test_meta_csv=args.test_meta_csv,
+        output_dir=args.output_dir,
+        task=args.task,
+        arch=args.arch,
+        batch_size=args.batch_size,
+        epochs=args.epochs,
+        lr=args.lr,
+        balance_train=args.balance_train,
+        pretrained=args.pretrained,
+        experiment_name=args.experiment_name,
+    )
+
+
+def _handle_train_embedding(args: argparse.Namespace) -> None:
+    from .train_torch import train_embedding_classifier
+
+    train_embedding_classifier(
+        output_dir=args.output_dir,
+        task=args.task,
+        source_kind=args.source_kind,
+        hidden_dim=args.hidden_dim,
+        model_kind=args.model_kind,
+        batch_size=args.batch_size,
+        epochs=args.epochs,
+        lr=args.lr,
+        balance_train=args.balance_train,
+        experiment_name=args.experiment_name,
+        feature_dir=args.feature_dir,
+        label_dir=args.label_dir,
+        splits_json=args.splits_json,
+        train_dir=args.train_dir,
+        val_dir=args.val_dir,
+        test_dir=args.test_dir,
+    )
+
+
+COMMAND_HANDLERS = {
+    "convert-wsi": _handle_convert_wsi,
+    "build-manifest": _handle_build_manifest,
+    "run-trident": _handle_run_trident,
+    "merge-embeddings": _handle_merge_embeddings,
+    "cache-tiles": _handle_cache_tiles,
+    "extract-handcrafted": _handle_extract_handcrafted,
+    "fit-fusion-selection": _handle_fit_fusion_selection,
+    "apply-fusion-selection": _handle_apply_fusion_selection,
+    "train-sklearn": _handle_train_sklearn,
+    "train-resnet": _handle_train_resnet,
+    "train-embedding": _handle_train_embedding,
+}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    handler = COMMAND_HANDLERS.get(args.command)
+    if handler is None:  # pragma: no cover
+        parser.error(f"unknown command: {args.command}")
+    handler(args)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

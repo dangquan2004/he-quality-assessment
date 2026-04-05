@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "he-quality-assesment"
+version = "0.1.0"
+description = "Installable Python scripts for H&E quality assessment and artifact detection on whole-slide histology images."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "h5py>=3.10",
+  "joblib>=1.3",
+  "numpy>=1.26",
+  "openslide-python>=1.3",
+  "opencv-python>=4.9",
+  "pandas>=2.2",
+  "Pillow>=10.0",
+  "scikit-image>=0.22",
+  "scikit-learn>=1.4",
+  "torch>=2.2",
+  "torchvision>=0.17",
+  "tqdm>=4.66",
+]
+keywords = ["histology", "whole-slide-imaging", "pathology", "he", "quality-control", "artifact-detection"]
+
+[project.urls]
+TRIDENT = "https://github.com/mahmoodlab/TRIDENT"
+UNI = "https://huggingface.co/MahmoodLab/UNI"
+CONCH = "https://huggingface.co/MahmoodLab/CONCH"
+
+[project.optional-dependencies]
+xgb = ["xgboost>=2.0"]
+kan = ["efficient-kan @ git+https://github.com/Blealtan/efficient-kan.git"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+he-quality = "ebme398_artifact_detection.cli:main"
+ebme398-artifact = "ebme398_artifact_detection.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
