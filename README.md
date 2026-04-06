@@ -271,6 +271,35 @@ he-quality train-embedding \
   --test-dir artifacts/fusion/test
 ```
 
+### 9. Single-slide hybrid inference from a raw `.ome.tiff`
+
+This command is for the fused handcrafted + embedding pipeline only. It accepts a single raw WSI, converts it to a pyramidal TIFF automatically when needed, runs TRIDENT on that slide, extracts handcrafted features from the same tile coordinates, applies the saved fusion selection, and writes both tile-level and slide-level predictions.
+
+```bash
+he-quality infer-hybrid-wsi \
+  --input-wsi data/inference/SR999.ome.tiff \
+  --output-dir outputs/inference/SR999 \
+  --trident-dir external/TRIDENT \
+  --checkpoint-path outputs/fusion_mlp/embedding_classifier_best.pt \
+  --scaler-path outputs/fusion_mlp/embedding_classifier_scaler.joblib \
+  --selection-json artifacts/fusion/selection.json \
+  --task binary \
+  --patch-encoder uni_v2
+```
+
+Outputs:
+
+- `outputs/inference/SR999/hybrid_tile_predictions.csv`
+- `outputs/inference/SR999/hybrid_slide_summary.json`
+- `outputs/inference/SR999/hybrid_inference/prepared_wsi/*.pyr.tif`
+- `outputs/inference/SR999/hybrid_inference/trident/**/<slide>.h5`
+
+Important constraints:
+
+- The checkpoint, scaler, and selection JSON must come from the same trained hybrid model family.
+- The embedding source used at inference must match the encoder used during training, for example `uni_v2` checkpoints should run against `uni_v2` TRIDENT features.
+- This command does not currently run dual-encoder UNI+CONCH fusion directly from a raw slide in one step; it assumes one embedding branch plus handcrafted features.
+
 ## Label Semantics Recovered From The Source
 
 - Binary: `clean` vs `unclean`

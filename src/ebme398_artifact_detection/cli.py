@@ -111,6 +111,29 @@ def build_parser() -> argparse.ArgumentParser:
     embedding.add_argument("--val-dir")
     embedding.add_argument("--test-dir")
 
+    infer_hybrid = subparsers.add_parser(
+        "infer-hybrid-wsi",
+        help="Run fused handcrafted+embedding inference on a single raw WSI, converting .ome.tiff to pyramidal TIFF as needed.",
+    )
+    infer_hybrid.add_argument("--input-wsi", required=True)
+    infer_hybrid.add_argument("--output-dir", required=True)
+    infer_hybrid.add_argument("--trident-dir", required=True)
+    infer_hybrid.add_argument("--checkpoint-path", required=True)
+    infer_hybrid.add_argument("--scaler-path", required=True)
+    infer_hybrid.add_argument("--selection-json", required=True)
+    infer_hybrid.add_argument("--task", required=True, type=_task, choices=list(Task))
+    infer_hybrid.add_argument("--patch-encoder", required=True, choices=["uni_v2", "conch_v1"])
+    infer_hybrid.add_argument("--model-kind", default="mlp", choices=["mlp", "kan"])
+    infer_hybrid.add_argument("--hidden-dim", type=int, default=512)
+    infer_hybrid.add_argument("--mpp", type=float, default=0.25)
+    infer_hybrid.add_argument("--mag", type=int, default=10)
+    infer_hybrid.add_argument("--patch-size", type=int, default=512)
+    infer_hybrid.add_argument("--patch-size-level0", type=int, default=3072)
+    infer_hybrid.add_argument("--target-patch-size", type=int, default=512)
+    infer_hybrid.add_argument("--quality", type=int, default=90)
+    infer_hybrid.add_argument("--batch-size", type=int, default=256)
+    infer_hybrid.add_argument("--gpu", type=int)
+
     return parser
 
 
@@ -255,6 +278,31 @@ def _handle_train_embedding(args: argparse.Namespace) -> None:
     )
 
 
+def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
+    from .infer import predict_hybrid_from_wsi
+
+    predict_hybrid_from_wsi(
+        input_wsi=args.input_wsi,
+        output_dir=args.output_dir,
+        trident_dir=args.trident_dir,
+        checkpoint_path=args.checkpoint_path,
+        scaler_path=args.scaler_path,
+        selection_json=args.selection_json,
+        task=args.task,
+        patch_encoder=args.patch_encoder,
+        model_kind=args.model_kind,
+        hidden_dim=args.hidden_dim,
+        mpp=args.mpp,
+        mag=args.mag,
+        patch_size=args.patch_size,
+        patch_size_level0=args.patch_size_level0,
+        target_patch_size=args.target_patch_size,
+        quality=args.quality,
+        batch_size=args.batch_size,
+        gpu=args.gpu,
+    )
+
+
 COMMAND_HANDLERS = {
     "convert-wsi": _handle_convert_wsi,
     "build-manifest": _handle_build_manifest,
@@ -267,6 +315,7 @@ COMMAND_HANDLERS = {
     "train-sklearn": _handle_train_sklearn,
     "train-resnet": _handle_train_resnet,
     "train-embedding": _handle_train_embedding,
+    "infer-hybrid-wsi": _handle_infer_hybrid_wsi,
 }
 
 

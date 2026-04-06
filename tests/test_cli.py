@@ -9,6 +9,7 @@ class CLITests(unittest.TestCase):
         self.assertIn("train-embedding", help_text)
         self.assertIn("train-resnet", help_text)
         self.assertIn("run-trident", help_text)
+        self.assertIn("infer-hybrid-wsi", help_text)
 
 
 if __name__ == "__main__":  # pragma: no cover
