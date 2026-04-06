@@ -27,6 +27,23 @@ def default_torch_device() -> str:
     return "cpu"
 
 
+def resolve_torch_device(requested: str | None = None) -> str:
+    if requested is None or requested == "auto":
+        return default_torch_device()
+    if requested == "cpu":
+        return "cpu"
+    if requested == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("requested device 'cuda' but CUDA is not available")
+        return "cuda"
+    if requested == "mps":
+        mps_backend = getattr(torch.backends, "mps", None)
+        if mps_backend is None or not mps_backend.is_available():
+            raise RuntimeError("requested device 'mps' but MPS is not available")
+        return "mps"
+    raise ValueError(f"unsupported torch device: {requested}")
+
+
 def _make_weighted_sampler(labels: np.ndarray) -> WeightedRandomSampler:
     counts = np.bincount(labels.astype(int))
     weights = 1.0 / np.maximum(counts, 1)
@@ -137,7 +154,7 @@ def _fit_torch_model(
     epochs: int = 20,
     device: str | None = None,
 ) -> tuple[nn.Module, dict]:
-    device = device or default_torch_device()
+    device = resolve_torch_device(device)
     output_dir.mkdir(parents=True, exist_ok=True)
     model = model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
@@ -154,7 +171,8 @@ def _fit_torch_model(
         if score > best_val:
             best_val = score
             torch.save(model.state_dict(), best_path)
-    model.load_state_dict(torch.load(best_path, map_location=device))
+    model.load_state_dict(torch.load(best_path, map_location="cpu"))
+    model = model.to(device)
     return model, {"history": history, "best_model_path": str(best_path), "device": device}
 
 

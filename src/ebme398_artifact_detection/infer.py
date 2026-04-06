@@ -11,13 +11,13 @@ import torch
 from PIL import Image
 from torch.utils.data import DataLoader, TensorDataset
 
+from .alignment import align_handcrafted_rows_to_feature_rows, ensure_slide_id_column
 from .handcrafted import extract_kba_features
 from .fusion import load_h5_features
 from .labels import Task, task_labels
 from .metrics import dump_json, evaluate_predictions
-from .paths import parse_patch_id, parse_wsi_stem_from_patch_path
 from .tiles import TileCachingConfig, pick_level_for_patch
-from .train_torch import KANClassifier, MLPClassifier, _logits_to_probabilities, default_torch_device
+from .train_torch import KANClassifier, MLPClassifier, _logits_to_probabilities, resolve_torch_device
 from .trident import run_trident_batch, write_custom_wsi_manifest
 
 
@@ -88,7 +88,7 @@ def _load_hybrid_model(
         model = KANClassifier(input_dim, output_dim, hidden_dim=hidden_dim)
     else:
         raise ValueError(f"unsupported model_kind: {model_kind}")
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
     model = model.to(device)
     model.eval()
     return model
@@ -119,11 +119,9 @@ def _load_hybrid_rows_from_h5(
     emb_keep = np.asarray(selection["embedding_keep_idx"], dtype=int)
     feature_key = selection.get("feature_key", "features")
 
-    df = pd.read_csv(hc_csv)
+    df = ensure_slide_id_column(pd.read_csv(hc_csv))
     if "path" not in df.columns:
         raise KeyError(f"expected 'path' column in {hc_csv}")
-    df["patch_id"] = df["path"].map(parse_patch_id)
-    df["slide_id"] = df["path"].map(parse_wsi_stem_from_patch_path)
 
     arrays = []
     y_true_batches = []
@@ -133,26 +131,26 @@ def _load_hybrid_rows_from_h5(
         h5_path = h5_dir / f"{slide_id}.h5"
         if not h5_path.exists():
             continue
-        group = group.sort_values("patch_id").reset_index(drop=True)
         embeddings, coords = load_h5_features(h5_path, feature_key=feature_key)
-        patch_ids = group["patch_id"].to_numpy(dtype=int)
-        valid = patch_ids < embeddings.shape[0]
-        if not np.any(valid):
-            continue
-        group = group.loc[valid].reset_index(drop=True)
-        patch_ids = patch_ids[valid]
+        group, feature_row_idx, _alignment_mode = align_handcrafted_rows_to_feature_rows(
+            group,
+            coords=coords,
+            n_features=embeddings.shape[0],
+            context=f"{hc_csv} :: {slide_id}",
+        )
         X_hc = group[hc_cols_all].to_numpy(dtype=np.float32)
         X_hc = X_hc[:, hc_keep] if hc_keep.size else np.zeros((len(group), 0), dtype=np.float32)
-        X_emb = embeddings[patch_ids].astype(np.float32)
+        X_emb = embeddings[feature_row_idx].astype(np.float32)
         X_emb = X_emb[:, emb_keep] if emb_keep.size else np.zeros((len(group), 0), dtype=np.float32)
         arrays.append(np.concatenate([X_hc, X_emb], axis=1))
         if label_column in group.columns:
             y_true_batches.append(group[label_column].to_numpy(dtype=int))
-        coord_subset = coords[patch_ids] if coords is not None and len(coords) else np.empty((len(group), 0), dtype=int)
+        coord_subset = coords[feature_row_idx] if coords is not None and len(coords) else np.empty((len(group), 0), dtype=int)
         for idx, row in enumerate(group.itertuples(index=False)):
             record = {
                 "slide_id": slide_id,
-                "patch_id": int(patch_ids[idx]),
+                "patch_id": int(feature_row_idx[idx]),
+                "feature_row_idx": int(feature_row_idx[idx]),
                 "path": row.path,
             }
             if coord_subset.shape[1] >= 2:
@@ -178,9 +176,10 @@ def _load_hybrid_rows_from_npz(npz_dir: str | Path) -> tuple[pd.DataFrame, np.nd
             y_true_batches.append(payload["y"].astype(int))
         coords = payload["coords"] if "coords" in payload.files else np.empty((len(X_fused), 0), dtype=int)
         paths = payload["paths"] if "paths" in payload.files else np.asarray([""] * len(X_fused), dtype=object)
+        feature_row_idx = payload["feature_row_idx"] if "feature_row_idx" in payload.files else np.arange(len(X_fused), dtype=int)
         slide_id = npz_path.stem.replace("_fused", "")
         for idx in range(len(X_fused)):
-            record = {"slide_id": slide_id, "path": str(paths[idx])}
+            record = {"slide_id": slide_id, "path": str(paths[idx]), "feature_row_idx": int(feature_row_idx[idx])}
             if coords.shape[1] >= 2:
                 record["x"] = int(coords[idx, 0])
                 record["y"] = int(coords[idx, 1])
@@ -210,7 +209,7 @@ def predict_hybrid_classifier(
     device: str | None = None,
 ) -> dict:
     task = Task(task)
-    device = device or default_torch_device()
+    device = resolve_torch_device(device)
     if source_kind == "h5":
         if hc_csv is None or h5_dir is None or selection_json is None:
             raise ValueError("h5 hybrid inference requires hc_csv, h5_dir, and selection_json")
@@ -241,7 +240,13 @@ def predict_hybrid_classifier(
     return _write_prediction_outputs(output_csv=output_csv, task=task, base_frame=meta_frame, probs=probs, y_true=y_true)
 
 
-def summarize_hybrid_predictions_by_slide(predictions_csv: str | Path, output_json: str | Path, *, task: Task | str) -> Path:
+def summarize_hybrid_predictions_by_slide(
+    predictions_csv: str | Path,
+    output_json: str | Path,
+    *,
+    task: Task | str,
+    binary_threshold: float = 0.5,
+) -> Path:
     task = Task(task)
     df = pd.read_csv(predictions_csv)
     if "slide_id" not in df.columns:
@@ -255,7 +260,8 @@ def summarize_hybrid_predictions_by_slide(predictions_csv: str | Path, output_js
             .reset_index()
             .rename(columns={"mean": "mean_prob_unclean", "max": "max_prob_unclean", "count": "n_tiles"})
         )
-        grouped["slide_pred_label"] = np.where(grouped["mean_prob_unclean"] >= 0.5, "unclean", "clean")
+        grouped["slide_threshold"] = float(binary_threshold)
+        grouped["slide_pred_label"] = np.where(grouped["mean_prob_unclean"] >= binary_threshold, "unclean", "clean")
         payload = grouped.to_dict(orient="records")
     else:
         prob_cols = [column for column in df.columns if column.startswith("prob_")]
@@ -312,6 +318,8 @@ def _find_single_feature_h5(job_dir: str | Path, slide_stem: str) -> Path:
     matches = sorted(Path(job_dir).glob(f"**/{slide_stem}.h5"))
     if not matches:
         raise FileNotFoundError(f"could not find TRIDENT feature H5 for {slide_stem} under {job_dir}")
+    if len(matches) > 1:
+        raise RuntimeError(f"found multiple TRIDENT feature H5 files for {slide_stem} under {job_dir}: {matches}")
     return matches[0]
 
 
@@ -353,10 +361,22 @@ def _extract_handcrafted_from_wsi_and_h5(
             X_emb = embeddings[patch_id : patch_id + 1].astype(np.float32)
             X_emb = X_emb[:, emb_keep] if emb_keep.size else np.zeros((1, 0), dtype=np.float32)
             fused.append(np.concatenate([X_hc, X_emb], axis=1))
-            rows.append({"slide_id": Path(h5_path).stem, "patch_id": int(patch_id), "x": int(x), "y": int(y)})
+            rows.append(
+                {
+                    "slide_id": Path(h5_path).stem,
+                    "patch_id": int(patch_id),
+                    "feature_row_idx": int(patch_id),
+                    "x": int(x),
+                    "y": int(y),
+                }
+            )
     finally:
         slide.close()
     return pd.DataFrame(rows), np.concatenate(fused, axis=0)
+
+
+def _write_inference_provenance(output_json: str | Path, payload: dict) -> Path:
+    return dump_json(output_json, payload)
 
 
 def predict_hybrid_from_wsi(
@@ -380,6 +400,7 @@ def predict_hybrid_from_wsi(
     batch_size: int = 256,
     gpu: int | None = None,
     device: str | None = None,
+    slide_threshold: float = 0.5,
 ) -> dict:
     task = Task(task)
     output_dir = Path(output_dir)
@@ -388,9 +409,10 @@ def predict_hybrid_from_wsi(
     prepared_wsi = _ensure_pyramidal_single_wsi(input_wsi, prepared_wsi_dir, quality=quality)
     manifest_csv = work_dir / "manifest" / "single_wsi.csv"
     write_custom_wsi_manifest(prepared_wsi.parent, manifest_csv, mpp=mpp)
-    trident_job_dir = work_dir / "trident"
+    trident_job_dir = work_dir / "trident" / f"{patch_encoder}_mag{mag}_ps{patch_size}"
     slide_stem = prepared_wsi.stem
     feature_h5 = _find_single_feature_h5(trident_job_dir, slide_stem) if trident_job_dir.exists() else None
+    trident_reused = feature_h5 is not None and feature_h5.exists()
     if feature_h5 is None or not feature_h5.exists():
         run_trident_batch(
             trident_dir,
@@ -404,6 +426,7 @@ def predict_hybrid_from_wsi(
             gpu=gpu,
         )
         feature_h5 = _find_single_feature_h5(trident_job_dir, slide_stem)
+        trident_reused = False
     meta_frame, X_raw = _extract_handcrafted_from_wsi_and_h5(
         wsi_path=prepared_wsi,
         h5_path=feature_h5,
@@ -413,7 +436,7 @@ def predict_hybrid_from_wsi(
     )
     scaler = joblib.load(scaler_path)
     X = scaler.transform(X_raw)
-    device = device or default_torch_device()
+    device = resolve_torch_device(device)
     model = _load_hybrid_model(
         checkpoint_path=checkpoint_path,
         input_dim=X.shape[1],
@@ -426,8 +449,46 @@ def predict_hybrid_from_wsi(
     predictions_csv = output_dir / "hybrid_tile_predictions.csv"
     payload = _write_prediction_outputs(output_csv=predictions_csv, task=task, base_frame=meta_frame, probs=probs, y_true=None)
     slide_summary_json = output_dir / "hybrid_slide_summary.json"
-    summarize_hybrid_predictions_by_slide(predictions_csv, slide_summary_json, task=task)
+    summarize_hybrid_predictions_by_slide(
+        predictions_csv,
+        slide_summary_json,
+        task=task,
+        binary_threshold=slide_threshold,
+    )
     payload["slide_summary_json"] = str(slide_summary_json)
     payload["feature_h5"] = str(feature_h5)
     payload["prepared_wsi"] = str(prepared_wsi)
+    payload["torch_device"] = device
+    payload["trident_job_dir"] = str(trident_job_dir)
+    payload["trident_reused"] = bool(trident_reused)
+    payload["slide_threshold"] = float(slide_threshold)
+    provenance_json = output_dir / "hybrid_inference_provenance.json"
+    _write_inference_provenance(
+        provenance_json,
+        {
+            "input_wsi": str(Path(input_wsi)),
+            "prepared_wsi": str(prepared_wsi),
+            "predictions_csv": str(predictions_csv),
+            "slide_summary_json": str(slide_summary_json),
+            "feature_h5": str(feature_h5),
+            "trident_dir": str(Path(trident_dir)),
+            "trident_job_dir": str(trident_job_dir),
+            "trident_gpu_index": gpu,
+            "trident_reused": bool(trident_reused),
+            "patch_encoder": patch_encoder,
+            "mag": int(mag),
+            "patch_size": int(patch_size),
+            "patch_size_level0": int(patch_size_level0),
+            "target_patch_size": int(target_patch_size),
+            "mpp": float(mpp),
+            "quality": int(quality),
+            "checkpoint_path": str(Path(checkpoint_path)),
+            "scaler_path": str(Path(scaler_path)),
+            "selection_json": str(Path(selection_json)),
+            "task": task.value,
+            "torch_device": device,
+            "slide_threshold": float(slide_threshold),
+        },
+    )
+    payload["provenance_json"] = str(provenance_json)
     return payload

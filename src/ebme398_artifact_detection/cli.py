@@ -133,6 +133,8 @@ def build_parser() -> argparse.ArgumentParser:
     infer_hybrid.add_argument("--quality", type=int, default=90)
     infer_hybrid.add_argument("--batch-size", type=int, default=256)
     infer_hybrid.add_argument("--gpu", type=int)
+    infer_hybrid.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
+    infer_hybrid.add_argument("--slide-threshold", type=float, default=0.5)
 
     return parser
 
@@ -300,6 +302,8 @@ def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
         quality=args.quality,
         batch_size=args.batch_size,
         gpu=args.gpu,
+        device=None if args.device == "auto" else args.device,
+        slide_threshold=args.slide_threshold,
     )
 
 

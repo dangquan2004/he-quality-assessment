@@ -273,7 +273,7 @@ he-quality train-embedding \
 
 ### 9. Single-slide hybrid inference from a raw `.ome.tiff`
 
-This command is for the fused handcrafted + embedding pipeline only. It accepts a single raw WSI, converts it to a pyramidal TIFF automatically when needed, runs TRIDENT on that slide, extracts handcrafted features from the same tile coordinates, applies the saved fusion selection, and writes both tile-level and slide-level predictions.
+This command is for the fused handcrafted + embedding pipeline only. It accepts a single raw WSI, converts it to a pyramidal TIFF automatically when needed, runs TRIDENT on that slide, extracts handcrafted features from the same tile coordinates, applies the saved fusion selection, and writes both tile-level and slide-level predictions with an explicit provenance record.
 
 ```bash
 he-quality infer-hybrid-wsi \
@@ -284,20 +284,26 @@ he-quality infer-hybrid-wsi \
   --scaler-path outputs/fusion_mlp/embedding_classifier_scaler.joblib \
   --selection-json artifacts/fusion/selection.json \
   --task binary \
-  --patch-encoder uni_v2
+  --patch-encoder uni_v2 \
+  --device auto \
+  --slide-threshold 0.5
 ```
 
 Outputs:
 
 - `outputs/inference/SR999/hybrid_tile_predictions.csv`
 - `outputs/inference/SR999/hybrid_slide_summary.json`
+- `outputs/inference/SR999/hybrid_inference_provenance.json`
 - `outputs/inference/SR999/hybrid_inference/prepared_wsi/*.pyr.tif`
-- `outputs/inference/SR999/hybrid_inference/trident/**/<slide>.h5`
+- `outputs/inference/SR999/hybrid_inference/trident/<encoder>_mag<mag>_ps<patch_size>/**/<slide>.h5`
 
 Important constraints:
 
 - The checkpoint, scaler, and selection JSON must come from the same trained hybrid model family.
 - The embedding source used at inference must match the encoder used during training, for example `uni_v2` checkpoints should run against `uni_v2` TRIDENT features.
+- Fusion alignment is now validated against TRIDENT coordinates when available. Handcrafted CSVs used for fusion should preserve `x` and `y` or `y0`.
+- `--device` controls the downstream torch classifier only. TRIDENT extraction is still controlled by TRIDENT itself and the optional `--gpu` flag.
+- `--slide-threshold` controls the binary slide-level summary decision threshold explicitly; `0.5` is only the default, not a universally validated value.
 - This command does not currently run dual-encoder UNI+CONCH fusion directly from a raw slide in one step; it assumes one embedding branch plus handcrafted features.
 
 ## Label Semantics Recovered From The Source

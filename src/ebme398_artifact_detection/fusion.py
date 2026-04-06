@@ -7,8 +7,8 @@ import h5py
 import numpy as np
 import pandas as pd
 
+from .alignment import align_handcrafted_rows_to_feature_rows, ensure_slide_id_column
 from .labels import Task
-from .paths import parse_patch_id, parse_wsi_stem_from_patch_path
 
 
 def load_h5_features(h5_path: str | Path, feature_key: str = "features") -> tuple[np.ndarray, np.ndarray | None]:
@@ -47,25 +47,31 @@ def fit_spearman_selection(
     feature_key: str = "features",
 ) -> Path:
     task = Task(task)
-    df = pd.read_csv(hc_csv_path)
+    df = ensure_slide_id_column(pd.read_csv(hc_csv_path))
     if "path" not in df.columns or label_column not in df.columns:
         raise KeyError(f"expected columns 'path' and {label_column!r}")
-    df["patch_id"] = df["path"].map(parse_patch_id)
-    df["wsi_stem"] = df["path"].map(parse_wsi_stem_from_patch_path)
-    hc_cols = [col for col in df.columns if col not in {"path", label_column, "patch_id", "wsi_stem"}]
+    hc_cols = [
+        col
+        for col in df.columns
+        if col not in {"path", label_column, "slide_id", "patch_id", "tile_idx", "feature_row_idx", "x", "y", "y0"}
+    ]
     X_hc_all, X_emb_all, y_all = [], [], []
+    alignment_modes: list[str] = []
     h5_dir = Path(h5_dir)
-    for wsi_stem, group in df.groupby("wsi_stem"):
-        h5_path = h5_dir / f"{wsi_stem}.h5"
+    for slide_id, group in df.groupby("slide_id"):
+        h5_path = h5_dir / f"{slide_id}.h5"
         if not h5_path.exists():
             continue
-        group = group.sort_values("patch_id").reset_index(drop=True)
-        X_emb, _coords = load_h5_features(h5_path, feature_key=feature_key)
-        patch_ids = group["patch_id"].to_numpy(dtype=int)
-        if patch_ids.max() >= X_emb.shape[0]:
-            continue
+        X_emb, coords = load_h5_features(h5_path, feature_key=feature_key)
+        group, feature_row_idx, alignment_mode = align_handcrafted_rows_to_feature_rows(
+            group,
+            coords=coords,
+            n_features=X_emb.shape[0],
+            context=f"{hc_csv_path} :: {slide_id}",
+        )
+        alignment_modes.append(alignment_mode)
         X_hc_all.append(group[hc_cols].to_numpy(dtype=np.float32))
-        X_emb_all.append(X_emb[patch_ids].astype(np.float32))
+        X_emb_all.append(X_emb[feature_row_idx].astype(np.float32))
         y_all.append(group[label_column].to_numpy(dtype=np.int64))
     if not X_hc_all:
         raise RuntimeError(
@@ -89,6 +95,7 @@ def fit_spearman_selection(
         "hc_cols_keep": [hc_cols[idx] for idx in np.where(rho_hc >= threshold)[0]],
         "embedding_keep_idx": np.where(rho_emb >= threshold)[0].tolist(),
         "feature_key": feature_key,
+        "alignment_modes": sorted(set(alignment_modes)),
     }
     selection_json = Path(selection_json)
     selection_json.parent.mkdir(parents=True, exist_ok=True)
@@ -109,33 +116,34 @@ def apply_selection_and_write_npz(
     hc_keep = np.asarray(selection["hc_keep_idx"], dtype=int)
     emb_keep = np.asarray(selection["embedding_keep_idx"], dtype=int)
     feature_key = selection.get("feature_key", "features")
-    df = pd.read_csv(hc_csv_path)
-    df["patch_id"] = df["path"].map(parse_patch_id)
-    df["wsi_stem"] = df["path"].map(parse_wsi_stem_from_patch_path)
+    df = ensure_slide_id_column(pd.read_csv(hc_csv_path))
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    for wsi_stem, group in df.groupby("wsi_stem"):
-        h5_path = Path(h5_dir) / f"{wsi_stem}.h5"
+    for slide_id, group in df.groupby("slide_id"):
+        h5_path = Path(h5_dir) / f"{slide_id}.h5"
         if not h5_path.exists():
             continue
-        group = group.sort_values("patch_id").reset_index(drop=True)
         embeddings, coords = load_h5_features(h5_path, feature_key=feature_key)
-        patch_ids = group["patch_id"].to_numpy(dtype=int)
-        if patch_ids.max() >= embeddings.shape[0]:
-            continue
+        group, feature_row_idx, _alignment_mode = align_handcrafted_rows_to_feature_rows(
+            group,
+            coords=coords,
+            n_features=embeddings.shape[0],
+            context=f"{hc_csv_path} :: {slide_id}",
+        )
         X_hc = group[hc_cols].to_numpy(dtype=np.float32)
         X_hc = X_hc[:, hc_keep] if hc_keep.size else np.zeros((len(group), 0), dtype=np.float32)
-        X_emb = embeddings[patch_ids].astype(np.float32)
+        X_emb = embeddings[feature_row_idx].astype(np.float32)
         X_emb = X_emb[:, emb_keep] if emb_keep.size else np.zeros((len(group), 0), dtype=np.float32)
         X_fused = np.concatenate([X_hc, X_emb], axis=1)
-        out_path = output_dir / f"{wsi_stem}_fused.npz"
+        out_path = output_dir / f"{slide_id}_fused.npz"
         np.savez_compressed(
             out_path,
             X_fused=X_fused.astype(np.float32),
             y=group[label_column].to_numpy(dtype=np.int64),
             paths=group["path"].to_numpy(dtype=object),
-            coords=coords[patch_ids] if coords is not None else np.empty((len(group), 0), dtype=np.int64),
+            coords=coords[feature_row_idx] if coords is not None else np.empty((len(group), 0), dtype=np.int64),
+            feature_row_idx=feature_row_idx.astype(np.int64),
         )
         written.append(out_path)
     return written

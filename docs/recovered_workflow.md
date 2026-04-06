@@ -86,11 +86,13 @@ The CSV filename stem should match the slide stem derived from the WSI filename.
 
 - H5 embeddings are expected under dataset key `features`
 - coordinates are read from `coords` when present
+- fusion workflows should preserve handcrafted row coordinates so they can be validated against TRIDENT `coords`
 - fused NPZ files are written with:
   - `X_fused`
   - `y`
   - `paths`
   - `coords`
+  - `feature_row_idx`
 
 ## Scientific Limits
 

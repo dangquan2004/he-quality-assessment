@@ -184,12 +184,15 @@ def featurize_meta_csv(meta_csv: str | Path, out_csv: str | Path) -> tuple[Path,
     meta = pd.read_csv(meta_csv)
     rows = []
     feature_names: list[str] | None = None
+    passthrough_cols = [column for column in ("slide_id", "tile_idx", "x", "y", "y0") if column in meta.columns]
     for row in meta.itertuples(index=False):
         image_u8 = torch.load(row.path)
         features, names = extract_kba_features(image_u8)
         if feature_names is None:
             feature_names = names
         item = {"path": row.path, "y_label": int(row.y_label)}
+        for column in passthrough_cols:
+            item[column] = getattr(row, column)
         item.update({feature_names[idx]: float(features[idx]) for idx in range(len(feature_names))})
         rows.append(item)
     out_csv = Path(out_csv)

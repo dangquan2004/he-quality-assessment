@@ -162,7 +162,16 @@ def cache_tiles_to_disk(
                 tensor = _pil_to_u8_chw(region)
                 save_path = out_dir / f"{row.slide_id}_{int(row.tile_idx):08d}.pt"
                 torch.save(tensor, save_path)
-                rows.append({"path": str(save_path), "y_label": int(row.y_label), "slide_id": row.slide_id, "tile_idx": int(row.tile_idx)})
+                rows.append(
+                    {
+                        "path": str(save_path),
+                        "y_label": int(row.y_label),
+                        "slide_id": row.slide_id,
+                        "tile_idx": int(row.tile_idx),
+                        "x": int(row.x),
+                        "y0": int(row.y0),
+                    }
+                )
         finally:
             slide.close()
     pd.DataFrame(rows).to_csv(meta_csv, index=False)
