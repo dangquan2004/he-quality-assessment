@@ -78,7 +78,8 @@ Important install note:
 
 - `pip install .` installs the Python package only.
 - TRIDENT-based commands still require a separate TRIDENT checkout.
-- UNI and CONCH weights are gated external dependencies and are not installed by this repo.
+- `uni_v2` requires approved Hugging Face access to `MahmoodLab/UNI2-h` plus user authentication before TRIDENT can download weights.
+- CONCH weights are also external gated dependencies and are not installed by this repo.
 - `train-sklearn --estimator xgb` requires `python -m pip install '.[xgb]'`.
 - `train-embedding --model-kind kan` requires `python -m pip install '.[kan]'`.
 
@@ -93,7 +94,110 @@ source/                           downloaded raw project material, ignored by gi
 analysis/                         notebook extraction scratch space, ignored by git
 ```
 
+## Inference
+
+### What This Inference Pipeline Does
+
+The deployed inference path in this repo is the fused handcrafted + embedding pipeline only.
+
+Given one raw WSI such as `.ome.tiff`, the command:
+
+- converts the slide to pyramidal TIFF when needed
+- runs TRIDENT on that single slide
+- extracts handcrafted features from the same TRIDENT coordinates
+- applies the saved fusion feature selection
+- loads the saved hybrid classifier and scaler
+- writes tile-level predictions, slide-level summary output, and a provenance JSON
+
+### Required Inputs Before Inference
+
+You need all of the following:
+
+- a raw WSI file such as `sample.ome.tiff`
+- a trained hybrid checkpoint such as `embedding_classifier_best.pt`
+- the matching scaler `.joblib`
+- the matching fusion `selection.json`
+- a local TRIDENT checkout
+- system access to `openslide` and `vips`
+
+The checkpoint, scaler, selection JSON, and embedding encoder must all come from the same trained hybrid model family.
+
+### Hugging Face Authentication For `uni_v2`
+
+If you run inference with:
+
+```bash
+--patch-encoder uni_v2
+```
+
+then TRIDENT will need access to the gated Hugging Face model `MahmoodLab/UNI2-h`.
+
+That means the user must have:
+
+- a Hugging Face account
+- approved access to `MahmoodLab/UNI2-h`
+- an authenticated environment before running TRIDENT
+
+Typical setup:
+
+```bash
+python -m pip install -U huggingface_hub
+huggingface-cli login
+```
+
+or:
+
+```bash
+export HF_TOKEN=your_hugging_face_token
+```
+
+If that authentication step is missing, TRIDENT-based `uni_v2` extraction will fail even if this repo itself installs correctly.
+
+### Single-Slide Hybrid Inference Example
+
+```bash
+he-quality infer-hybrid-wsi \
+  --input-wsi data/inference/SR999.ome.tiff \
+  --output-dir outputs/inference/SR999 \
+  --trident-dir external/TRIDENT \
+  --checkpoint-path outputs/fusion_mlp/embedding_classifier_best.pt \
+  --scaler-path outputs/fusion_mlp/embedding_classifier_scaler.joblib \
+  --selection-json artifacts/fusion/selection.json \
+  --task binary \
+  --patch-encoder uni_v2 \
+  --device auto \
+  --slide-threshold 0.5
+```
+
+### Inference Outputs
+
+- `outputs/inference/SR999/hybrid_tile_predictions.csv`
+- `outputs/inference/SR999/hybrid_slide_summary.json`
+- `outputs/inference/SR999/hybrid_inference_provenance.json`
+- `outputs/inference/SR999/hybrid_inference/prepared_wsi/*.pyr.tif`
+- `outputs/inference/SR999/hybrid_inference/trident/<encoder>_mag<mag>_ps<patch_size>/**/<slide>.h5`
+
+### Inference Constraints
+
+- The embedding source used at inference must match the encoder used during training.
+- Fusion alignment is validated against TRIDENT coordinates when available.
+- `--device` controls the downstream torch classifier only.
+- TRIDENT extraction is still controlled by TRIDENT itself and the optional `--gpu` flag.
+- `--slide-threshold` controls the binary slide-level summary threshold explicitly.
+- This command does not run dual-encoder UNI+CONCH fusion directly from a raw slide in one step.
+
+### Common Inference Failure Points
+
+- missing `vips` on `PATH`
+- missing OpenSlide system libraries
+- missing or wrong TRIDENT checkout
+- missing Hugging Face auth for `uni_v2`
+- mismatched checkpoint, scaler, and selection JSON
+- wrong encoder choice at inference time relative to training
+
 ## Quickstart
+
+This section covers training and feature-preparation workflow. Inference is documented in the dedicated section above.
 
 ### 1. Convert raw WSI files to pyramidal TIFF
 
@@ -291,41 +395,6 @@ he-quality train-embedding \
   --test-dir artifacts/fusion/test
 ```
 
-### 9. Single-slide hybrid inference from a raw `.ome.tiff`
-
-This command is for the fused handcrafted + embedding pipeline only. It accepts a single raw WSI, converts it to a pyramidal TIFF automatically when needed, runs TRIDENT on that slide, extracts handcrafted features from the same tile coordinates, applies the saved fusion selection, and writes both tile-level and slide-level predictions with an explicit provenance record.
-
-```bash
-he-quality infer-hybrid-wsi \
-  --input-wsi data/inference/SR999.ome.tiff \
-  --output-dir outputs/inference/SR999 \
-  --trident-dir external/TRIDENT \
-  --checkpoint-path outputs/fusion_mlp/embedding_classifier_best.pt \
-  --scaler-path outputs/fusion_mlp/embedding_classifier_scaler.joblib \
-  --selection-json artifacts/fusion/selection.json \
-  --task binary \
-  --patch-encoder uni_v2 \
-  --device auto \
-  --slide-threshold 0.5
-```
-
-Outputs:
-
-- `outputs/inference/SR999/hybrid_tile_predictions.csv`
-- `outputs/inference/SR999/hybrid_slide_summary.json`
-- `outputs/inference/SR999/hybrid_inference_provenance.json`
-- `outputs/inference/SR999/hybrid_inference/prepared_wsi/*.pyr.tif`
-- `outputs/inference/SR999/hybrid_inference/trident/<encoder>_mag<mag>_ps<patch_size>/**/<slide>.h5`
-
-Important constraints:
-
-- The checkpoint, scaler, and selection JSON must come from the same trained hybrid model family.
-- The embedding source used at inference must match the encoder used during training, for example `uni_v2` checkpoints should run against `uni_v2` TRIDENT features.
-- Fusion alignment is now validated against TRIDENT coordinates when available. Handcrafted CSVs used for fusion should preserve `x` and `y` or `y0`.
-- `--device` controls the downstream torch classifier only. TRIDENT extraction is still controlled by TRIDENT itself and the optional `--gpu` flag.
-- `--slide-threshold` controls the binary slide-level summary decision threshold explicitly; `0.5` is only the default, not a universally validated value.
-- This command does not currently run dual-encoder UNI+CONCH fusion directly from a raw slide in one step; it assumes one embedding branch plus handcrafted features.
-
 ## Label Semantics Recovered From The Source
 
 - Binary: `clean` vs `unclean`
@@ -336,13 +405,14 @@ Supported normalization includes notebook typos such as `tissue_damge` and order
 ## TRIDENT, UNI, and CONCH References
 
 - TRIDENT framework: <https://github.com/mahmoodlab/TRIDENT>
-- UNI model card: <https://huggingface.co/MahmoodLab/UNI>
+- UNI2-h model card: <https://huggingface.co/MahmoodLab/UNI2-h>
 - UNI code repo: <https://github.com/mahmoodlab/UNI>
 - CONCH model card: <https://huggingface.co/MahmoodLab/CONCH>
 - CONCH code repo: <https://github.com/mahmoodlab/CONCH>
 
 Important constraint from the official model cards:
 
+- `uni_v2` in this workflow depends on gated Hugging Face access to `MahmoodLab/UNI2-h`.
 - UNI and CONCH weights are gated on Hugging Face.
 - Both are released for non-commercial academic research use.
 - Users should request access with an institutional email and should not redistribute the weights.
