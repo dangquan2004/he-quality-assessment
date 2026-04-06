@@ -18,6 +18,15 @@ from .metrics import dump_json, evaluate_predictions
 from .tiles import CachedTileDataset
 
 
+def default_torch_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    mps_backend = getattr(torch.backends, "mps", None)
+    if mps_backend is not None and mps_backend.is_available():
+        return "mps"
+    return "cpu"
+
+
 def _make_weighted_sampler(labels: np.ndarray) -> WeightedRandomSampler:
     counts = np.bincount(labels.astype(int))
     weights = 1.0 / np.maximum(counts, 1)
@@ -128,7 +137,7 @@ def _fit_torch_model(
     epochs: int = 20,
     device: str | None = None,
 ) -> tuple[nn.Module, dict]:
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    device = device or default_torch_device()
     output_dir.mkdir(parents=True, exist_ok=True)
     model = model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)

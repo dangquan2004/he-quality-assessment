@@ -17,7 +17,7 @@ from .labels import Task, task_labels
 from .metrics import dump_json, evaluate_predictions
 from .paths import parse_patch_id, parse_wsi_stem_from_patch_path
 from .tiles import TileCachingConfig, pick_level_for_patch
-from .train_torch import KANClassifier, MLPClassifier, _logits_to_probabilities
+from .train_torch import KANClassifier, MLPClassifier, _logits_to_probabilities, default_torch_device
 from .trident import run_trident_batch, write_custom_wsi_manifest
 
 
@@ -210,7 +210,7 @@ def predict_hybrid_classifier(
     device: str | None = None,
 ) -> dict:
     task = Task(task)
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    device = device or default_torch_device()
     if source_kind == "h5":
         if hc_csv is None or h5_dir is None or selection_json is None:
             raise ValueError("h5 hybrid inference requires hc_csv, h5_dir, and selection_json")
@@ -413,7 +413,7 @@ def predict_hybrid_from_wsi(
     )
     scaler = joblib.load(scaler_path)
     X = scaler.transform(X_raw)
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    device = device or default_torch_device()
     model = _load_hybrid_model(
         checkpoint_path=checkpoint_path,
         input_dim=X.shape[1],
