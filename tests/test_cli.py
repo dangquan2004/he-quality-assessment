@@ -1,4 +1,7 @@
 import unittest
+import subprocess
+import sys
+from pathlib import Path
 
 from ebme398_artifact_detection.cli import build_parser
 
@@ -40,6 +43,18 @@ class CLITests(unittest.TestCase):
         )
         self.assertEqual(args.device, "cpu")
         self.assertAlmostEqual(args.slide_threshold, 0.7)
+
+    def test_repo_script_help_works_from_clone_layout(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script_path = repo_root / "scripts" / "he_quality.py"
+        result = subprocess.run(
+            [sys.executable, str(script_path), "--help"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertIn("infer-hybrid-wsi", result.stdout)
 
 
 if __name__ == "__main__":  # pragma: no cover

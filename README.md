@@ -22,7 +22,7 @@ This repo keeps the original scientific intent, but it does not pretend to fully
 
 ## External Dependencies
 
-Recommended Python: `3.10` to `3.12`.
+Recommended Python: `3.10+`.
 
 System packages:
 
@@ -34,11 +34,14 @@ Examples:
 - macOS: `brew install openslide libvips`
 - Ubuntu/Debian: `sudo apt-get install libopenslide-dev openslide-tools libvips-tools`
 
-Install the package:
+Clone and install:
 
 ```bash
-git clone <your-github-url>/he-quality-assesment.git
-cd he-quality-assesment
+git clone https://github.com/dangquan2004/he-quality-assessment.git
+cd he-quality-assessment
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install .
 ```
 
@@ -61,6 +64,23 @@ or the plain Python script entrypoint:
 ```bash
 python scripts/he_quality.py --help
 ```
+
+Quick preflight checks:
+
+```bash
+python -c "import openslide; print(openslide.__library_version__)"
+vips --version
+he-quality --help
+python scripts/he_quality.py --help
+```
+
+Important install note:
+
+- `pip install .` installs the Python package only.
+- TRIDENT-based commands still require a separate TRIDENT checkout.
+- UNI and CONCH weights are gated external dependencies and are not installed by this repo.
+- `train-sklearn --estimator xgb` requires `python -m pip install '.[xgb]'`.
+- `train-embedding --model-kind kan` requires `python -m pip install '.[kan]'`.
 
 ## Repository Layout
 
