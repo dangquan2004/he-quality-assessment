@@ -161,6 +161,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_qc.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
     run_qc.add_argument("--gpu", type=int)
 
+    doctor = subparsers.add_parser(
+        "doctor",
+        help="Run a preflight gate check for run-qc: OpenSlide, vips, TRIDENT, Hugging Face auth, and recovered artifacts.",
+    )
+    doctor.add_argument("--trident-dir", default="external/TRIDENT")
+    doctor.add_argument("--artifact-root")
+
     return parser
 
 
@@ -395,6 +402,12 @@ def _handle_run_qc(args: argparse.Namespace) -> None:
         print(f"Quality-control results written to {qc_results_json}")
 
 
+def _handle_doctor(args: argparse.Namespace) -> None:
+    from .doctor import run_doctor
+
+    raise SystemExit(run_doctor(trident_dir=args.trident_dir, artifact_root=args.artifact_root))
+
+
 COMMAND_HANDLERS = {
     "convert-wsi": _handle_convert_wsi,
     "build-manifest": _handle_build_manifest,
@@ -409,6 +422,7 @@ COMMAND_HANDLERS = {
     "train-embedding": _handle_train_embedding,
     "infer-hybrid-wsi": _handle_infer_hybrid_wsi,
     "run-qc": _handle_run_qc,
+    "doctor": _handle_doctor,
 }
 
 

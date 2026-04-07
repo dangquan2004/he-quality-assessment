@@ -1,0 +1,218 @@
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+from .presets import get_hybrid_inference_preset, resolve_artifact_root
+
+
+@dataclass(frozen=True)
+class CheckResult:
+    name: str
+    ok: bool
+    summary: str
+    fix: str | None = None
+
+
+def _run_command(cmd: list[str], *, cwd: str | Path | None = None, timeout: int = 30) -> tuple[bool, str]:
+    try:
+        completed = subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=timeout,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        message = getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or str(exc)
+        return False, message.strip()
+    output = completed.stdout.strip() or completed.stderr.strip()
+    return True, output
+
+
+def _default_hf_token_path() -> Path:
+    hf_home = os.environ.get("HF_HOME")
+    if hf_home:
+        return Path(hf_home).expanduser() / "token"
+    xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
+    if xdg_cache_home:
+        return Path(xdg_cache_home).expanduser() / "huggingface" / "token"
+    return Path.home() / ".cache" / "huggingface" / "token"
+
+
+def check_openslide() -> CheckResult:
+    try:
+        import openslide
+    except Exception as exc:
+        return CheckResult(
+            name="OpenSlide",
+            ok=False,
+            summary=f"openslide import failed: {exc}",
+            fix=(
+                "Install the OpenSlide system library first.\n"
+                "macOS: brew install openslide\n"
+                "Ubuntu/Debian: sudo apt-get install libopenslide-dev openslide-tools"
+            ),
+        )
+    library_version = getattr(openslide, "__library_version__", "unknown")
+    python_version = getattr(openslide, "__version__", "unknown")
+    return CheckResult(
+        name="OpenSlide",
+        ok=True,
+        summary=f"openslide-python {python_version}, OpenSlide library {library_version}",
+    )
+
+
+def check_vips() -> CheckResult:
+    resolved = shutil.which("vips")
+    if resolved is None:
+        return CheckResult(
+            name="libvips",
+            ok=False,
+            summary="vips executable not found on PATH",
+            fix=(
+                "Install libvips.\n"
+                "macOS: brew install vips\n"
+                "Ubuntu/Debian: sudo apt-get install libvips-tools"
+            ),
+        )
+    ok, output = _run_command(["vips", "--version"])
+    if not ok:
+        return CheckResult(
+            name="libvips",
+            ok=False,
+            summary=f"found vips at {resolved}, but version check failed: {output}",
+            fix=(
+                "Reinstall libvips and make sure `vips --version` works.\n"
+                "macOS: brew install vips\n"
+                "Ubuntu/Debian: sudo apt-get install libvips-tools"
+            ),
+        )
+    return CheckResult(name="libvips", ok=True, summary=f"{resolved} ({output})")
+
+
+def check_trident(trident_dir: str | Path) -> CheckResult:
+    trident_dir = Path(trident_dir).expanduser().resolve()
+    script = trident_dir / "run_batch_of_slides.py"
+    if not script.exists():
+        return CheckResult(
+            name="TRIDENT",
+            ok=False,
+            summary=f"TRIDENT entrypoint not found at {script}",
+            fix=(
+                "Clone and install TRIDENT into the same active Python environment.\n"
+                "git clone https://github.com/mahmoodlab/TRIDENT.git external/TRIDENT\n"
+                "cd external/TRIDENT\n"
+                "python -m pip install -e ."
+            ),
+        )
+    ok, output = _run_command([sys.executable, str(script), "--help"], cwd=trident_dir)
+    if not ok:
+        return CheckResult(
+            name="TRIDENT",
+            ok=False,
+            summary=f"TRIDENT help check failed under {sys.executable}: {output}",
+            fix=(
+                "Install TRIDENT into the same active Python environment as this repo.\n"
+                "cd {trident_dir}\n"
+                "python -m pip install -e ."
+            ).format(trident_dir=trident_dir),
+        )
+    return CheckResult(name="TRIDENT", ok=True, summary=f"callable from {trident_dir}")
+
+
+def check_hugging_face_auth() -> CheckResult:
+    env_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if env_token:
+        return CheckResult(
+            name="Hugging Face auth",
+            ok=True,
+            summary="token found in environment (`HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`)",
+        )
+
+    hf_cli = shutil.which("hf")
+    if hf_cli is not None:
+        ok, output = _run_command([hf_cli, "auth", "whoami"])
+        if ok:
+            return CheckResult(name="Hugging Face auth", ok=True, summary=f"authenticated: {output}")
+
+    token_path = _default_hf_token_path()
+    if token_path.exists() and token_path.read_text().strip():
+        return CheckResult(
+            name="Hugging Face auth",
+            ok=True,
+            summary=f"token file present at {token_path} (not revalidated against the Hub in this check)",
+        )
+
+    return CheckResult(
+        name="Hugging Face auth",
+        ok=False,
+        summary="no Hugging Face login detected",
+        fix=(
+            "Install the Hub CLI and log in with an approved token for MahmoodLab/UNI2-h.\n"
+            "python -m pip install -U huggingface_hub\n"
+            "hf auth login"
+        ),
+    )
+
+
+def check_artifacts(*, artifact_root: str | Path | None, preset_name: str = "s4_new_multiclass") -> CheckResult:
+    preset = get_hybrid_inference_preset(preset_name)
+    try:
+        root = resolve_artifact_root(artifact_root)
+    except FileNotFoundError as exc:
+        return CheckResult(
+            name="Recovered artifacts",
+            ok=False,
+            summary=str(exc),
+            fix="Put the recovered `working_dir` at `source/working_dir` or pass `--artifact-root /path/to/working_dir`.",
+        )
+    required = [
+        root / preset.selection_relpath,
+        root / preset.scaler_relpath,
+        root / preset.checkpoint_relpath,
+    ]
+    missing = [path for path in required if not path.exists()]
+    if missing:
+        return CheckResult(
+            name="Recovered artifacts",
+            ok=False,
+            summary="missing required preset artifacts: " + ", ".join(str(path) for path in missing),
+            fix="Make sure the recovered `working_dir` contains the `S4_new` selection, scaler, and checkpoint files.",
+        )
+    return CheckResult(
+        name="Recovered artifacts",
+        ok=True,
+        summary=f"found preset artifacts under {root}",
+    )
+
+
+def run_doctor(*, trident_dir: str | Path, artifact_root: str | Path | None) -> int:
+    checks = [
+        check_openslide(),
+        check_vips(),
+        check_trident(trident_dir),
+        check_hugging_face_auth(),
+        check_artifacts(artifact_root=artifact_root),
+    ]
+    print("he-quality doctor")
+    print(f"python: {sys.executable}")
+    print("")
+    for check in checks:
+        status = "OK" if check.ok else "FAIL"
+        print(f"[{status}] {check.name}: {check.summary}")
+        if check.fix:
+            print(check.fix)
+        print("")
+    if all(check.ok for check in checks):
+        print("All required gates passed.")
+        print("You can now run:")
+        print("he-quality run-qc --input-path /path/to/wsi_or_folder --output-dir /path/to/output")
+        return 0
+    print("One or more required gates failed. Fix the items above and rerun `he-quality doctor`.")
+    return 1
