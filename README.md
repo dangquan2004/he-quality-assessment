@@ -19,7 +19,7 @@ It accepts either:
 
 and writes tile-level predictions plus a slide-level summary for each slide.
 
-If you only want QC results from WSI files, start with the quick start below.
+If you only want QC results from WSI files, start with the quick start below and stop after Step 7.
 
 ## Quick Start
 
@@ -127,7 +127,7 @@ The manifest stores the preprocessing contract for the bundled model, so `run-qc
 - `quality`
 - `slide_threshold`
 
-You only need `--model-dir` if you want to override the bundled model with a different compatible model directory.
+Most users do not need to touch these files directly. You only need `--model-dir` if you want to override the bundled model with a different compatible model directory.
 
 If you prefer an environment variable, you can also set:
 
@@ -200,10 +200,12 @@ That is the standard deployment path. Most users do not need anything else in th
 ## What This Repo Does
 
 - converts raw TIFF-like WSIs into pyramidal TIFF when needed
-- runs TRIDENT feature extraction with `uni_v2` or `conch_v1`
+- runs TRIDENT feature extraction
 - applies the packaged quality-control model
 - writes tile-level and slide-level QC outputs
 - still exposes training utilities for the recovered research workflow
+
+The default QC path uses `uni_v2`. Advanced workflows can switch to other supported patch encoders such as `conch_v1`.
 
 This repo does not pretrain UNI or CONCH. Those remain external dependencies.
 
@@ -327,6 +329,8 @@ he-quality train-embedding --output-dir outputs/embedding_mlp --task binary --so
 # 4. Train a fusion model
 he-quality fit-fusion-selection --hc-csv artifacts/features/g1_kba_train.csv --h5-dir outputs/trident_uni/10x_512px_0px_overlap/features_uni_v2 --selection-json artifacts/fusion/selection.json --task binary
 he-quality apply-fusion-selection --hc-csv artifacts/features/g1_kba_train.csv --h5-dir outputs/trident_uni/10x_512px_0px_overlap/features_uni_v2 --selection-json artifacts/fusion/selection.json --output-dir artifacts/fusion/train
+# repeat apply-fusion-selection for each split you plan to use downstream
+# for example: artifacts/fusion/val and artifacts/fusion/test
 he-quality train-embedding --output-dir outputs/fusion_mlp --task binary --source-kind npz --train-dir artifacts/fusion/train --val-dir artifacts/fusion/val --test-dir artifacts/fusion/test
 ```
 
@@ -337,6 +341,8 @@ Expected per-slide label CSV for training:
 - contains `y` or `y0`
 - contains `label` or `label_collapsed`
 - optional `idx`
+
+The main alignment contract is spatial: the CSV should provide coordinates that correspond to the extracted slide patches.
 
 ## Labels
 
