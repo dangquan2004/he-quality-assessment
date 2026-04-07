@@ -16,10 +16,11 @@ from .handcrafted import extract_kba_features
 from .fusion import load_h5_features
 from .labels import Task, task_labels
 from .metrics import dump_json, evaluate_predictions
+from .paths import normalize_slide_id_from_wsi
 from .selection import load_selection_payload, selection_embedding_keep, selection_feature_key, selection_hc_keep
 from .tiles import TileCachingConfig, pick_level_for_patch
 from .train_torch import KANClassifier, MLPClassifier, _logits_to_probabilities, resolve_torch_device
-from .trident import run_trident_batch, write_custom_wsi_manifest
+from .trident import WSI_PATTERNS, run_trident_batch, write_custom_wsi_manifest
 
 
 def _prediction_frame(task: Task, probs: np.ndarray) -> pd.DataFrame:
@@ -380,6 +381,40 @@ def _write_inference_provenance(output_json: str | Path, payload: dict) -> Path:
     return dump_json(output_json, payload)
 
 
+def _batch_slide_id(path: str | Path) -> str:
+    slide_id = normalize_slide_id_from_wsi(path)
+    if slide_id.endswith(".pyr"):
+        return slide_id[: -len(".pyr")]
+    return slide_id
+
+
+def _discover_wsi_inputs(input_path: str | Path) -> list[Path]:
+    input_path = Path(input_path)
+    if not input_path.exists():
+        raise FileNotFoundError(f"input path does not exist: {input_path}")
+    if input_path.is_file():
+        return [input_path.resolve()]
+    if not input_path.is_dir():
+        raise ValueError(f"input path must be a file or directory: {input_path}")
+
+    candidates: dict[str, Path] = {}
+    for pattern in WSI_PATTERNS:
+        for path in input_path.rglob(pattern):
+            candidates[str(path.resolve())] = path.resolve()
+    slides = sorted(candidates.values())
+    if not slides:
+        raise FileNotFoundError(f"no supported WSI files found under {input_path}")
+
+    by_slide_id: dict[str, list[Path]] = {}
+    for path in slides:
+        by_slide_id.setdefault(_batch_slide_id(path), []).append(path)
+    duplicates = {slide_id: paths for slide_id, paths in by_slide_id.items() if len(paths) > 1}
+    if duplicates:
+        details = "; ".join(f"{slide_id}: {[str(path) for path in paths]}" for slide_id, paths in sorted(duplicates.items()))
+        raise RuntimeError(f"multiple WSI files resolve to the same slide_id; clean the input folder first: {details}")
+    return slides
+
+
 def predict_hybrid_from_wsi(
     *,
     input_wsi: str | Path,
@@ -493,3 +528,108 @@ def predict_hybrid_from_wsi(
     )
     payload["provenance_json"] = str(provenance_json)
     return payload
+
+
+def predict_hybrid_from_path(
+    *,
+    input_path: str | Path,
+    output_dir: str | Path,
+    trident_dir: str | Path,
+    checkpoint_path: str | Path,
+    scaler_path: str | Path,
+    selection_json: str | Path,
+    task: Task | str,
+    patch_encoder: str,
+    model_kind: str = "mlp",
+    hidden_dim: int = 512,
+    mpp: float = 0.25,
+    mag: int = 10,
+    patch_size: int = 512,
+    patch_size_level0: int = 3072,
+    target_patch_size: int = 512,
+    quality: int = 90,
+    batch_size: int = 256,
+    gpu: int | None = None,
+    device: str | None = None,
+    slide_threshold: float = 0.5,
+) -> dict:
+    input_path = Path(input_path)
+    slides = _discover_wsi_inputs(input_path)
+    if input_path.is_file():
+        return predict_hybrid_from_wsi(
+            input_wsi=input_path,
+            output_dir=output_dir,
+            trident_dir=trident_dir,
+            checkpoint_path=checkpoint_path,
+            scaler_path=scaler_path,
+            selection_json=selection_json,
+            task=task,
+            patch_encoder=patch_encoder,
+            model_kind=model_kind,
+            hidden_dim=hidden_dim,
+            mpp=mpp,
+            mag=mag,
+            patch_size=patch_size,
+            patch_size_level0=patch_size_level0,
+            target_patch_size=target_patch_size,
+            quality=quality,
+            batch_size=batch_size,
+            gpu=gpu,
+            device=device,
+            slide_threshold=slide_threshold,
+        )
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    task = Task(task)
+    slide_payloads = []
+    for slide_path in slides:
+        slide_id = _batch_slide_id(slide_path)
+        slide_output_dir = output_dir / slide_id
+        payload = predict_hybrid_from_wsi(
+            input_wsi=slide_path,
+            output_dir=slide_output_dir,
+            trident_dir=trident_dir,
+            checkpoint_path=checkpoint_path,
+            scaler_path=scaler_path,
+            selection_json=selection_json,
+            task=task,
+            patch_encoder=patch_encoder,
+            model_kind=model_kind,
+            hidden_dim=hidden_dim,
+            mpp=mpp,
+            mag=mag,
+            patch_size=patch_size,
+            patch_size_level0=patch_size_level0,
+            target_patch_size=target_patch_size,
+            quality=quality,
+            batch_size=batch_size,
+            gpu=gpu,
+            device=device,
+            slide_threshold=slide_threshold,
+        )
+        slide_payloads.append(
+            {
+                "slide_id": slide_id,
+                "input_wsi": str(slide_path),
+                "output_dir": str(slide_output_dir),
+                **payload,
+            }
+        )
+
+    batch_summary_json = output_dir / "hybrid_batch_summary.json"
+    dump_json(
+        batch_summary_json,
+        {
+            "input_path": str(input_path),
+            "output_dir": str(output_dir),
+            "task": task.value,
+            "n_slides": len(slide_payloads),
+            "slides": slide_payloads,
+        },
+    )
+    return {
+        "batch_summary_json": str(batch_summary_json),
+        "n_slides": len(slide_payloads),
+        "slides": slide_payloads,
+    }

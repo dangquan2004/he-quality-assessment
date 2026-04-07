@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from .labels import Task
+from .presets import available_hybrid_inference_presets, get_hybrid_inference_preset, resolve_preset_artifact_path
 
 
 def _task(value: str) -> Task:
@@ -113,18 +114,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     infer_hybrid = subparsers.add_parser(
         "infer-hybrid-wsi",
-        help="Run fused handcrafted+embedding inference on a single raw WSI, converting .ome.tiff to pyramidal TIFF as needed.",
+        help="Run fused handcrafted+embedding inference on one WSI or a folder of WSIs, converting raw .ome.tiff to pyramidal TIFF as needed.",
     )
-    infer_hybrid.add_argument("--input-wsi", required=True)
+    infer_hybrid.add_argument(
+        "--input-path",
+        "--input-wsi",
+        dest="input_path",
+        required=True,
+        help="Path to one WSI or a directory of WSIs.",
+    )
     infer_hybrid.add_argument("--output-dir", required=True)
     infer_hybrid.add_argument("--trident-dir", required=True)
-    infer_hybrid.add_argument("--checkpoint-path", required=True)
-    infer_hybrid.add_argument("--scaler-path", required=True)
-    infer_hybrid.add_argument("--selection-json", required=True)
-    infer_hybrid.add_argument("--task", required=True, type=_task, choices=list(Task))
-    infer_hybrid.add_argument("--patch-encoder", required=True, choices=["uni_v2", "conch_v1"])
-    infer_hybrid.add_argument("--model-kind", default="mlp", choices=["mlp", "kan"])
-    infer_hybrid.add_argument("--hidden-dim", type=int, default=512)
+    infer_hybrid.add_argument("--preset", choices=available_hybrid_inference_presets())
+    infer_hybrid.add_argument("--artifact-root")
+    infer_hybrid.add_argument("--checkpoint-path")
+    infer_hybrid.add_argument("--scaler-path")
+    infer_hybrid.add_argument("--selection-json")
+    infer_hybrid.add_argument("--task", type=_task, choices=list(Task))
+    infer_hybrid.add_argument("--patch-encoder", choices=["uni_v2", "conch_v1"])
+    infer_hybrid.add_argument("--model-kind", choices=["mlp", "kan"])
+    infer_hybrid.add_argument("--hidden-dim", type=int)
     infer_hybrid.add_argument("--mpp", type=float, default=0.25)
     infer_hybrid.add_argument("--mag", type=int, default=10)
     infer_hybrid.add_argument("--patch-size", type=int, default=512)
@@ -281,19 +290,55 @@ def _handle_train_embedding(args: argparse.Namespace) -> None:
 
 
 def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
-    from .infer import predict_hybrid_from_wsi
+    from .infer import predict_hybrid_from_path
 
-    predict_hybrid_from_wsi(
-        input_wsi=args.input_wsi,
+    checkpoint_path = args.checkpoint_path
+    scaler_path = args.scaler_path
+    selection_json = args.selection_json
+    task = args.task
+    patch_encoder = args.patch_encoder
+    model_kind = args.model_kind
+    hidden_dim = args.hidden_dim
+
+    if args.preset:
+        preset = get_hybrid_inference_preset(args.preset)
+        checkpoint_path = checkpoint_path or str(resolve_preset_artifact_path(preset.checkpoint_relpath, args.artifact_root))
+        scaler_path = scaler_path or str(resolve_preset_artifact_path(preset.scaler_relpath, args.artifact_root))
+        selection_json = selection_json or str(resolve_preset_artifact_path(preset.selection_relpath, args.artifact_root))
+        task = task or preset.task
+        patch_encoder = patch_encoder or preset.patch_encoder
+        model_kind = model_kind or preset.model_kind
+        hidden_dim = hidden_dim if hidden_dim is not None else preset.hidden_dim
+
+    model_kind = model_kind or "mlp"
+    hidden_dim = 512 if hidden_dim is None else hidden_dim
+
+    missing = []
+    if checkpoint_path is None:
+        missing.append("--checkpoint-path")
+    if scaler_path is None:
+        missing.append("--scaler-path")
+    if selection_json is None:
+        missing.append("--selection-json")
+    if task is None:
+        missing.append("--task")
+    if patch_encoder is None:
+        missing.append("--patch-encoder")
+    if missing:
+        joined = ", ".join(missing)
+        raise SystemExit(f"infer-hybrid-wsi is missing required arguments: {joined}. Use --preset or pass them explicitly.")
+
+    predict_hybrid_from_path(
+        input_path=args.input_path,
         output_dir=args.output_dir,
         trident_dir=args.trident_dir,
-        checkpoint_path=args.checkpoint_path,
-        scaler_path=args.scaler_path,
-        selection_json=args.selection_json,
-        task=args.task,
-        patch_encoder=args.patch_encoder,
-        model_kind=args.model_kind,
-        hidden_dim=args.hidden_dim,
+        checkpoint_path=checkpoint_path,
+        scaler_path=scaler_path,
+        selection_json=selection_json,
+        task=task,
+        patch_encoder=patch_encoder,
+        model_kind=model_kind,
+        hidden_dim=hidden_dim,
         mpp=args.mpp,
         mag=args.mag,
         patch_size=args.patch_size,

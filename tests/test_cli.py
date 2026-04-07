@@ -19,28 +19,22 @@ class CLITests(unittest.TestCase):
         args = parser.parse_args(
             [
                 "infer-hybrid-wsi",
-                "--input-wsi",
+                "--input-path",
                 "slide.ome.tiff",
                 "--output-dir",
                 "out",
                 "--trident-dir",
                 "external/TRIDENT",
-                "--checkpoint-path",
-                "model.pt",
-                "--scaler-path",
-                "scaler.joblib",
-                "--selection-json",
-                "selection.json",
-                "--task",
-                "binary",
-                "--patch-encoder",
-                "uni_v2",
+                "--preset",
+                "s4_new_multiclass",
                 "--device",
                 "cpu",
                 "--slide-threshold",
                 "0.7",
             ]
         )
+        self.assertEqual(args.input_path, "slide.ome.tiff")
+        self.assertEqual(args.preset, "s4_new_multiclass")
         self.assertEqual(args.device, "cpu")
         self.assertAlmostEqual(args.slide_threshold, 0.7)
 
