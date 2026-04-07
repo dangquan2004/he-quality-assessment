@@ -1,0 +1,27 @@
+{
+  "bundle_name": "he_quality_qc_default",
+  "bundle_version": "1.0.0",
+  "task": "multiclass",
+  "patch_encoder": "uni_v2",
+  "model_kind": "mlp",
+  "hidden_dim": 512,
+  "labels": [
+    "clean",
+    "tissue_damage",
+    "blurry+fold"
+  ],
+  "files": {
+    "checkpoint": {
+      "path": "checkpoint.pt",
+      "sha256": "d48cb1fbd2c6ec643f1d084d595421445a7c00a5c5c2c803bd85b1c94c6739db"
+    },
+    "scaler": {
+      "path": "scaler.joblib",
+      "sha256": "5f548350d2a0533a525019139309055e7850f25fa366f4026eb110ccede034d7"
+    },
+    "selection": {
+      "path": "selection.json",
+      "sha256": "9204a9c853afa827b5a5b831cfd3e635c1e649428d02ae49502f6a0c434c99b8"
+    }
+  }
+}

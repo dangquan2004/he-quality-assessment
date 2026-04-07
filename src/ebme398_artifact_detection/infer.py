@@ -17,6 +17,7 @@ from .fusion import load_h5_features
 from .labels import Task, task_labels
 from .metrics import dump_json, evaluate_predictions
 from .paths import normalize_slide_id_from_wsi
+from .qc_outputs import load_single_slide_qc_row, write_batch_results_csv, write_quality_control_alias
 from .selection import load_selection_payload, selection_embedding_keep, selection_feature_key, selection_hc_keep
 from .tiles import TileCachingConfig, pick_level_for_patch
 from .train_torch import KANClassifier, MLPClassifier, _logits_to_probabilities, resolve_torch_device
@@ -381,14 +382,6 @@ def _write_inference_provenance(output_json: str | Path, payload: dict) -> Path:
     return dump_json(output_json, payload)
 
 
-def _write_quality_control_alias(source_json: str | Path, alias_json: str | Path) -> Path:
-    source_json = Path(source_json)
-    alias_json = Path(alias_json)
-    alias_json.parent.mkdir(parents=True, exist_ok=True)
-    alias_json.write_text(source_json.read_text())
-    return alias_json
-
-
 def _batch_slide_id(path: str | Path) -> str:
     slide_id = normalize_slide_id_from_wsi(path)
     if slide_id.endswith(".pyr"):
@@ -445,6 +438,8 @@ def predict_hybrid_from_wsi(
     gpu: int | None = None,
     device: str | None = None,
     slide_threshold: float = 0.5,
+    model_dir: str | Path | None = None,
+    model_manifest_path: str | Path | None = None,
 ) -> dict:
     task = Task(task)
     output_dir = Path(output_dir)
@@ -500,7 +495,7 @@ def predict_hybrid_from_wsi(
         binary_threshold=slide_threshold,
     )
     payload["slide_summary_json"] = str(slide_summary_json)
-    qc_results_json = _write_quality_control_alias(slide_summary_json, output_dir / "quality_control_results.json")
+    qc_results_json = write_quality_control_alias(slide_summary_json, output_dir / "quality_control_results.json")
     payload["qc_results_json"] = str(qc_results_json)
     payload["feature_h5"] = str(feature_h5)
     payload["prepared_wsi"] = str(prepared_wsi)
@@ -532,6 +527,8 @@ def predict_hybrid_from_wsi(
             "checkpoint_path": str(Path(checkpoint_path)),
             "scaler_path": str(Path(scaler_path)),
             "selection_json": str(Path(selection_json)),
+            "model_dir": str(Path(model_dir)) if model_dir is not None else None,
+            "model_manifest_path": str(Path(model_manifest_path)) if model_manifest_path is not None else None,
             "task": task.value,
             "torch_device": device,
             "slide_threshold": float(slide_threshold),
@@ -563,6 +560,8 @@ def predict_hybrid_from_path(
     gpu: int | None = None,
     device: str | None = None,
     slide_threshold: float = 0.5,
+    model_dir: str | Path | None = None,
+    model_manifest_path: str | Path | None = None,
 ) -> dict:
     input_path = Path(input_path)
     slides = _discover_wsi_inputs(input_path)
@@ -588,6 +587,8 @@ def predict_hybrid_from_path(
             gpu=gpu,
             device=device,
             slide_threshold=slide_threshold,
+            model_dir=model_dir,
+            model_manifest_path=model_manifest_path,
         )
 
     output_dir = Path(output_dir)
@@ -618,6 +619,8 @@ def predict_hybrid_from_path(
             gpu=gpu,
             device=device,
             slide_threshold=slide_threshold,
+            model_dir=model_dir,
+            model_manifest_path=model_manifest_path,
         )
         slide_payloads.append(
             {
@@ -639,10 +642,15 @@ def predict_hybrid_from_path(
             "slides": slide_payloads,
         },
     )
-    qc_results_json = _write_quality_control_alias(batch_summary_json, output_dir / "quality_control_results.json")
+    qc_results_json = dump_json(
+        output_dir / "quality_control_results.json",
+        [load_single_slide_qc_row(payload["qc_results_json"]) for payload in slide_payloads],
+    )
+    batch_results_csv = write_batch_results_csv(slide_payloads, output_dir / "batch_results.csv")
     return {
         "batch_summary_json": str(batch_summary_json),
         "qc_results_json": str(qc_results_json),
+        "batch_results_csv": str(batch_results_csv),
         "n_slides": len(slide_payloads),
         "slides": slide_payloads,
     }

@@ -4,6 +4,7 @@ This directory contains the bundled quality-control inference files used by `he-
 
 Files:
 
+- `model_manifest.json`: bundle metadata and file checksums
 - `checkpoint.pt`: downstream PyTorch classifier
 - `scaler.joblib`: fitted feature scaler for inference
 - `selection.json`: saved handcrafted-plus-embedding feature selection

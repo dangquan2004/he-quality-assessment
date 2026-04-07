@@ -102,6 +102,13 @@ models/qc
 
 By default, `run-qc` uses those bundled files automatically.
 
+That bundle includes:
+
+- `model_manifest.json`
+- `checkpoint.pt`
+- `scaler.joblib`
+- `selection.json`
+
 You only need `--model-dir` if you want to override the bundled model with a different compatible model directory.
 
 If you prefer an environment variable, you can also set:
@@ -137,6 +144,7 @@ The doctor command checks:
 - TRIDENT callable from the current Python environment
 - Hugging Face authentication
 - bundled QC model artifacts
+- model-manifest checksums when `model_manifest.json` is present
 
 ### Step 7. Run Quality Control
 
@@ -203,12 +211,17 @@ Single-slide run:
 Folder run:
 
 - `quality_control_results.json`
+- `batch_results.csv`
 - one subfolder per slide under `output_dir/<slide_id>/`
 - one root-level `hybrid_batch_summary.json`
 
 The first file most users should open is:
 
 - `quality_control_results.json`
+
+If you want a spreadsheet-friendly summary for a folder run, use:
+
+- `batch_results.csv`
 
 ## Troubleshooting
 

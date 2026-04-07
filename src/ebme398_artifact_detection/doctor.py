@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from .presets import get_hybrid_inference_preset, resolve_model_dir
+from .model_bundle import resolve_model_bundle
 
 
 @dataclass(frozen=True)
@@ -162,33 +162,22 @@ def check_hugging_face_auth() -> CheckResult:
 
 
 def check_artifacts(*, model_dir: str | Path | None, preset_name: str = "s4_new_multiclass") -> CheckResult:
-    preset = get_hybrid_inference_preset(preset_name)
     try:
-        root = resolve_model_dir(model_dir)
-    except FileNotFoundError as exc:
+        bundle = resolve_model_bundle(preset_name=preset_name, model_dir=model_dir)
+    except (FileNotFoundError, RuntimeError) as exc:
         return CheckResult(
             name="QC model artifacts",
             ok=False,
             summary=str(exc),
             fix="Keep the bundled files in `models/qc` or pass `--model-dir /path/to/model_dir`.",
         )
-    required = [
-        root / preset.selection_relpath,
-        root / preset.scaler_relpath,
-        root / preset.checkpoint_relpath,
-    ]
-    missing = [path for path in required if not path.exists()]
-    if missing:
-        return CheckResult(
-            name="QC model artifacts",
-            ok=False,
-            summary="missing required quality-control model artifacts: " + ", ".join(str(path) for path in missing),
-            fix="Make sure the model directory contains `selection.json`, `scaler.joblib`, and `checkpoint.pt`.",
-        )
+    summary = f"found required model artifacts under {bundle['model_dir']}"
+    if bundle["manifest_path"] is not None:
+        summary += f" (manifest verified: {bundle['manifest_path'].name})"
     return CheckResult(
         name="QC model artifacts",
         ok=True,
-        summary=f"found required model artifacts under {root}",
+        summary=summary,
     )
 
 

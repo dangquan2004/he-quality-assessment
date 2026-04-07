@@ -3,7 +3,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from .labels import Task
-from .presets import available_hybrid_inference_presets, get_hybrid_inference_preset, resolve_preset_artifact_path
+from .model_bundle import resolve_model_bundle
+from .presets import available_hybrid_inference_presets
+
+
+TASK_METAVAR = "{binary,multiclass}"
 
 
 def _task(value: str) -> Task:
@@ -47,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     cache.add_argument("--wsi-dir", required=True)
     cache.add_argument("--label-dir", required=True)
     cache.add_argument("--splits-json", required=True)
-    cache.add_argument("--task", required=True, type=_task, choices=list(Task))
+    cache.add_argument("--task", required=True, type=_task, choices=list(Task), metavar=TASK_METAVAR)
     cache.add_argument("--tile-cache-dir", required=True)
     cache.add_argument("--wsi-cache-dir", required=True)
     cache.add_argument("--patch-size-level0", type=int, default=3072)
@@ -61,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     select.add_argument("--hc-csv", required=True)
     select.add_argument("--h5-dir", required=True)
     select.add_argument("--selection-json", required=True)
-    select.add_argument("--task", required=True, type=_task, choices=list(Task))
+    select.add_argument("--task", required=True, type=_task, choices=list(Task), metavar=TASK_METAVAR)
     select.add_argument("--threshold", type=float, default=0.08)
 
     apply_selection = subparsers.add_parser("apply-fusion-selection", help="Apply saved selection indices and write fused NPZ files.")
@@ -75,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     sklearn_train.add_argument("--val-csv", required=True)
     sklearn_train.add_argument("--test-csv", required=True)
     sklearn_train.add_argument("--output-dir", required=True)
-    sklearn_train.add_argument("--task", required=True, type=_task, choices=list(Task))
+    sklearn_train.add_argument("--task", required=True, type=_task, choices=list(Task), metavar=TASK_METAVAR)
     sklearn_train.add_argument("--estimator", default="svm", choices=["svm", "xgb"])
     sklearn_train.add_argument("--balance-train", action="store_true")
     sklearn_train.add_argument("--max-train-per-class", type=int)
@@ -86,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     resnet.add_argument("--val-meta-csv", required=True)
     resnet.add_argument("--test-meta-csv", required=True)
     resnet.add_argument("--output-dir", required=True)
-    resnet.add_argument("--task", required=True, type=_task, choices=list(Task))
+    resnet.add_argument("--task", required=True, type=_task, choices=list(Task), metavar=TASK_METAVAR)
     resnet.add_argument("--arch", default="resnet50", choices=["resnet18", "resnet34", "resnet50"])
     resnet.add_argument("--batch-size", type=int, default=32)
     resnet.add_argument("--epochs", type=int, default=10)
@@ -97,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     embedding = subparsers.add_parser("train-embedding", help="Train an MLP or KAN classifier from H5 or fused NPZ features.")
     embedding.add_argument("--output-dir", required=True)
-    embedding.add_argument("--task", required=True, type=_task, choices=list(Task))
+    embedding.add_argument("--task", required=True, type=_task, choices=list(Task), metavar=TASK_METAVAR)
     embedding.add_argument("--source-kind", required=True, choices=["h5", "npz"])
     embedding.add_argument("--model-kind", default="mlp", choices=["mlp", "kan"])
     embedding.add_argument("--hidden-dim", type=int, default=512)
@@ -131,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     infer_hybrid.add_argument("--checkpoint-path")
     infer_hybrid.add_argument("--scaler-path")
     infer_hybrid.add_argument("--selection-json")
-    infer_hybrid.add_argument("--task", type=_task, choices=list(Task))
+    infer_hybrid.add_argument("--task", type=_task, choices=list(Task), metavar=TASK_METAVAR)
     infer_hybrid.add_argument("--patch-encoder", choices=["uni_v2", "conch_v1"])
     infer_hybrid.add_argument("--model-kind", choices=["mlp", "kan"])
     infer_hybrid.add_argument("--hidden-dim", type=int)
@@ -315,6 +319,7 @@ def _handle_train_embedding(args: argparse.Namespace) -> None:
 def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
     from .infer import predict_hybrid_from_path
 
+    bundle = None
     checkpoint_path = args.checkpoint_path
     scaler_path = args.scaler_path
     selection_json = args.selection_json
@@ -324,14 +329,14 @@ def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
     hidden_dim = args.hidden_dim
 
     if args.preset:
-        preset = get_hybrid_inference_preset(args.preset)
-        checkpoint_path = checkpoint_path or str(resolve_preset_artifact_path(preset.checkpoint_relpath, args.model_dir))
-        scaler_path = scaler_path or str(resolve_preset_artifact_path(preset.scaler_relpath, args.model_dir))
-        selection_json = selection_json or str(resolve_preset_artifact_path(preset.selection_relpath, args.model_dir))
-        task = task or preset.task
-        patch_encoder = patch_encoder or preset.patch_encoder
-        model_kind = model_kind or preset.model_kind
-        hidden_dim = hidden_dim if hidden_dim is not None else preset.hidden_dim
+        bundle = resolve_model_bundle(preset_name=args.preset, model_dir=args.model_dir)
+        checkpoint_path = checkpoint_path or str(bundle["checkpoint_path"])
+        scaler_path = scaler_path or str(bundle["scaler_path"])
+        selection_json = selection_json or str(bundle["selection_json"])
+        task = task or bundle["task"]
+        patch_encoder = patch_encoder or bundle["patch_encoder"]
+        model_kind = model_kind or bundle["model_kind"]
+        hidden_dim = hidden_dim if hidden_dim is not None else bundle["hidden_dim"]
 
     model_kind = model_kind or "mlp"
     hidden_dim = 512 if hidden_dim is None else hidden_dim
@@ -372,6 +377,8 @@ def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
         gpu=args.gpu,
         device=None if args.device == "auto" else args.device,
         slide_threshold=args.slide_threshold,
+        model_dir=None if bundle is None else bundle["model_dir"],
+        model_manifest_path=None if bundle is None else bundle["manifest_path"],
     )
     qc_results_json = payload.get("qc_results_json")
     if qc_results_json:
@@ -381,19 +388,21 @@ def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
 def _handle_run_qc(args: argparse.Namespace) -> None:
     from .infer import predict_hybrid_from_path
 
-    preset = get_hybrid_inference_preset("s4_new_multiclass")
+    bundle = resolve_model_bundle(preset_name="s4_new_multiclass", model_dir=args.model_dir)
     trident_dir = Path(args.trident_dir)
     payload = predict_hybrid_from_path(
         input_path=args.input_path,
         output_dir=args.output_dir,
         trident_dir=trident_dir,
-        checkpoint_path=resolve_preset_artifact_path(preset.checkpoint_relpath, args.model_dir),
-        scaler_path=resolve_preset_artifact_path(preset.scaler_relpath, args.model_dir),
-        selection_json=resolve_preset_artifact_path(preset.selection_relpath, args.model_dir),
-        task=preset.task,
-        patch_encoder=preset.patch_encoder,
-        model_kind=preset.model_kind,
-        hidden_dim=preset.hidden_dim,
+        checkpoint_path=bundle["checkpoint_path"],
+        scaler_path=bundle["scaler_path"],
+        selection_json=bundle["selection_json"],
+        task=bundle["task"],
+        patch_encoder=bundle["patch_encoder"],
+        model_kind=bundle["model_kind"],
+        hidden_dim=bundle["hidden_dim"],
+        model_dir=bundle["model_dir"],
+        model_manifest_path=bundle["manifest_path"],
         device=None if args.device == "auto" else args.device,
         gpu=args.gpu,
     )
