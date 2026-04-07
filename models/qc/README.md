@@ -11,7 +11,7 @@ Files:
 If you want to override this bundled model, pass:
 
 ```bash
---artifact-root /path/to/other/model_dir
+--model-dir /path/to/other/model_dir
 ```
 
 where that directory contains the same three files.

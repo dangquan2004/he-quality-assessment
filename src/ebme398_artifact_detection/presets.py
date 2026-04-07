@@ -7,7 +7,8 @@ from pathlib import Path
 from .labels import Task
 
 
-ARTIFACT_ROOT_ENV_VAR = "HE_QUALITY_ARTIFACT_ROOT"
+MODEL_DIR_ENV_VAR = "HE_QUALITY_MODEL_DIR"
+LEGACY_ARTIFACT_ROOT_ENV_VAR = "HE_QUALITY_ARTIFACT_ROOT"
 
 
 @dataclass(frozen=True)
@@ -47,29 +48,29 @@ def get_hybrid_inference_preset(name: str) -> HybridInferencePreset:
         raise KeyError(f"unknown hybrid inference preset: {name}") from exc
 
 
-def repo_default_artifact_root() -> Path:
+def repo_default_model_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "models" / "qc"
 
 
-def resolve_artifact_root(artifact_root: str | Path | None = None) -> Path:
-    if artifact_root is not None:
-        root = Path(artifact_root).expanduser().resolve()
+def resolve_model_dir(model_dir: str | Path | None = None) -> Path:
+    if model_dir is not None:
+        root = Path(model_dir).expanduser().resolve()
     else:
-        env_root = os.environ.get(ARTIFACT_ROOT_ENV_VAR)
+        env_root = os.environ.get(MODEL_DIR_ENV_VAR) or os.environ.get(LEGACY_ARTIFACT_ROOT_ENV_VAR)
         if env_root:
             root = Path(env_root).expanduser().resolve()
         else:
-            root = repo_default_artifact_root().resolve()
+            root = repo_default_model_dir().resolve()
     if not root.exists():
         raise FileNotFoundError(
-            f"artifact root does not exist: {root}. "
-            f"Pass --artifact-root or set {ARTIFACT_ROOT_ENV_VAR}."
+            f"model directory does not exist: {root}. "
+            f"Pass --model-dir or set {MODEL_DIR_ENV_VAR}."
         )
     return root
 
 
-def resolve_preset_artifact_path(relative_path: str, artifact_root: str | Path | None = None) -> Path:
-    root = resolve_artifact_root(artifact_root)
+def resolve_preset_artifact_path(relative_path: str, model_dir: str | Path | None = None) -> Path:
+    root = resolve_model_dir(model_dir)
     path = (root / relative_path).resolve()
     if not path.exists():
         raise FileNotFoundError(f"preset artifact not found: {path}")

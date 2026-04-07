@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from .presets import get_hybrid_inference_preset, resolve_artifact_root
+from .presets import get_hybrid_inference_preset, resolve_model_dir
 
 
 @dataclass(frozen=True)
@@ -161,16 +161,16 @@ def check_hugging_face_auth() -> CheckResult:
     )
 
 
-def check_artifacts(*, artifact_root: str | Path | None, preset_name: str = "s4_new_multiclass") -> CheckResult:
+def check_artifacts(*, model_dir: str | Path | None, preset_name: str = "s4_new_multiclass") -> CheckResult:
     preset = get_hybrid_inference_preset(preset_name)
     try:
-        root = resolve_artifact_root(artifact_root)
+        root = resolve_model_dir(model_dir)
     except FileNotFoundError as exc:
         return CheckResult(
             name="QC model artifacts",
             ok=False,
             summary=str(exc),
-            fix="Keep the bundled files in `models/qc` or pass `--artifact-root /path/to/model_dir`.",
+            fix="Keep the bundled files in `models/qc` or pass `--model-dir /path/to/model_dir`.",
         )
     required = [
         root / preset.selection_relpath,
@@ -192,13 +192,13 @@ def check_artifacts(*, artifact_root: str | Path | None, preset_name: str = "s4_
     )
 
 
-def run_doctor(*, trident_dir: str | Path, artifact_root: str | Path | None) -> int:
+def run_doctor(*, trident_dir: str | Path, model_dir: str | Path | None) -> int:
     checks = [
         check_openslide(),
         check_vips(),
         check_trident(trident_dir),
         check_hugging_face_auth(),
-        check_artifacts(artifact_root=artifact_root),
+        check_artifacts(model_dir=model_dir),
     ]
     print("he-quality doctor")
     print(f"python: {sys.executable}")

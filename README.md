@@ -102,7 +102,13 @@ models/qc
 
 By default, `run-qc` uses those bundled files automatically.
 
-You only need `--artifact-root` if you want to override the bundled model with a different compatible model directory.
+You only need `--model-dir` if you want to override the bundled model with a different compatible model directory.
+
+If you prefer an environment variable, you can also set:
+
+```bash
+export HE_QUALITY_MODEL_DIR=/path/to/model_dir
+```
 
 ### Step 6. Run The Gate Check
 
@@ -121,7 +127,7 @@ he-quality doctor --trident-dir /path/to/TRIDENT
 If you want to override the bundled model files:
 
 ```bash
-he-quality doctor --artifact-root /path/to/model_dir
+he-quality doctor --model-dir /path/to/model_dir
 ```
 
 The doctor command checks:
@@ -159,7 +165,7 @@ If TRIDENT is not at `external/TRIDENT`, add:
 If you want to override the bundled model files, add:
 
 ```bash
---artifact-root /path/to/model_dir
+--model-dir /path/to/model_dir
 ```
 
 ## What This Repo Does

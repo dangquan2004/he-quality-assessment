@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     infer_hybrid.add_argument("--output-dir", required=True)
     infer_hybrid.add_argument("--trident-dir", required=True)
     infer_hybrid.add_argument("--preset", choices=available_hybrid_inference_presets())
-    infer_hybrid.add_argument("--artifact-root")
+    infer_hybrid.add_argument("--model-dir", "--artifact-root", dest="model_dir")
     infer_hybrid.add_argument("--checkpoint-path")
     infer_hybrid.add_argument("--scaler-path")
     infer_hybrid.add_argument("--selection-json")
@@ -157,16 +157,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_qc.add_argument("--output-dir", required=True)
     run_qc.add_argument("--trident-dir", default="external/TRIDENT")
-    run_qc.add_argument("--artifact-root")
+    run_qc.add_argument("--model-dir", "--artifact-root", dest="model_dir")
     run_qc.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
     run_qc.add_argument("--gpu", type=int)
 
     doctor = subparsers.add_parser(
         "doctor",
-        help="Run a preflight gate check for run-qc: OpenSlide, vips, TRIDENT, Hugging Face auth, and recovered artifacts.",
+        help="Run a preflight gate check for run-qc: OpenSlide, vips, TRIDENT, Hugging Face auth, and QC model files.",
     )
     doctor.add_argument("--trident-dir", default="external/TRIDENT")
-    doctor.add_argument("--artifact-root")
+    doctor.add_argument("--model-dir", "--artifact-root", dest="model_dir")
 
     return parser
 
@@ -325,9 +325,9 @@ def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
 
     if args.preset:
         preset = get_hybrid_inference_preset(args.preset)
-        checkpoint_path = checkpoint_path or str(resolve_preset_artifact_path(preset.checkpoint_relpath, args.artifact_root))
-        scaler_path = scaler_path or str(resolve_preset_artifact_path(preset.scaler_relpath, args.artifact_root))
-        selection_json = selection_json or str(resolve_preset_artifact_path(preset.selection_relpath, args.artifact_root))
+        checkpoint_path = checkpoint_path or str(resolve_preset_artifact_path(preset.checkpoint_relpath, args.model_dir))
+        scaler_path = scaler_path or str(resolve_preset_artifact_path(preset.scaler_relpath, args.model_dir))
+        selection_json = selection_json or str(resolve_preset_artifact_path(preset.selection_relpath, args.model_dir))
         task = task or preset.task
         patch_encoder = patch_encoder or preset.patch_encoder
         model_kind = model_kind or preset.model_kind
@@ -387,9 +387,9 @@ def _handle_run_qc(args: argparse.Namespace) -> None:
         input_path=args.input_path,
         output_dir=args.output_dir,
         trident_dir=trident_dir,
-        checkpoint_path=resolve_preset_artifact_path(preset.checkpoint_relpath, args.artifact_root),
-        scaler_path=resolve_preset_artifact_path(preset.scaler_relpath, args.artifact_root),
-        selection_json=resolve_preset_artifact_path(preset.selection_relpath, args.artifact_root),
+        checkpoint_path=resolve_preset_artifact_path(preset.checkpoint_relpath, args.model_dir),
+        scaler_path=resolve_preset_artifact_path(preset.scaler_relpath, args.model_dir),
+        selection_json=resolve_preset_artifact_path(preset.selection_relpath, args.model_dir),
         task=preset.task,
         patch_encoder=preset.patch_encoder,
         model_kind=preset.model_kind,
@@ -405,7 +405,7 @@ def _handle_run_qc(args: argparse.Namespace) -> None:
 def _handle_doctor(args: argparse.Namespace) -> None:
     from .doctor import run_doctor
 
-    raise SystemExit(run_doctor(trident_dir=args.trident_dir, artifact_root=args.artifact_root))
+    raise SystemExit(run_doctor(trident_dir=args.trident_dir, model_dir=args.model_dir))
 
 
 COMMAND_HANDLERS = {

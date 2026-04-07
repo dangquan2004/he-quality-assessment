@@ -58,7 +58,22 @@ class CLITests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["doctor"])
         self.assertEqual(args.trident_dir, "external/TRIDENT")
-        self.assertIsNone(args.artifact_root)
+        self.assertIsNone(args.model_dir)
+
+    def test_run_qc_accepts_model_dir_alias(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "run-qc",
+                "--input-path",
+                "slides",
+                "--output-dir",
+                "out",
+                "--model-dir",
+                "models/qc",
+            ]
+        )
+        self.assertEqual(args.model_dir, "models/qc")
 
     def test_repo_script_help_works_from_clone_layout(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
