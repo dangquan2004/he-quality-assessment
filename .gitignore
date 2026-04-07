@@ -18,3 +18,6 @@ wsi_cache/
 *.npy
 *.npz
 *.joblib
+!models/**/*.pt
+!models/**/*.joblib
+!models/**/*.json

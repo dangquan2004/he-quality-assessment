@@ -170,7 +170,7 @@ def check_artifacts(*, artifact_root: str | Path | None, preset_name: str = "s4_
             name="QC model artifacts",
             ok=False,
             summary=str(exc),
-            fix="Put the model `working_dir` at `source/working_dir` or pass `--artifact-root /path/to/working_dir`.",
+            fix="Keep the bundled files in `models/qc` or pass `--artifact-root /path/to/model_dir`.",
         )
     required = [
         root / preset.selection_relpath,
@@ -183,7 +183,7 @@ def check_artifacts(*, artifact_root: str | Path | None, preset_name: str = "s4_
             name="QC model artifacts",
             ok=False,
             summary="missing required quality-control model artifacts: " + ", ".join(str(path) for path in missing),
-            fix="Make sure the model `working_dir` contains the required selection, scaler, and checkpoint files.",
+            fix="Make sure the model directory contains `selection.json`, `scaler.joblib`, and `checkpoint.pt`.",
         )
     return CheckResult(
         name="QC model artifacts",

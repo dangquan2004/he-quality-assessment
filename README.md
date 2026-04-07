@@ -92,27 +92,17 @@ If you prefer environment variables:
 export HF_TOKEN=your_hugging_face_token
 ```
 
-### Step 5. Make Sure The Model Artifacts Exist
+### Step 5. Check The Bundled QC Model Files
 
-`run-qc` expects the model `working_dir` tree.
-
-Default location inside this repo:
+This repo now ships the QC inference files directly in:
 
 ```text
-source/working_dir
+models/qc
 ```
 
-If your model artifacts live elsewhere, pass:
+By default, `run-qc` uses those bundled files automatically.
 
-```bash
---artifact-root /path/to/working_dir
-```
-
-or set:
-
-```bash
-export HE_QUALITY_ARTIFACT_ROOT=/path/to/working_dir
-```
+You only need `--artifact-root` if you want to override the bundled model with a different compatible model directory.
 
 ### Step 6. Run The Gate Check
 
@@ -128,10 +118,10 @@ If TRIDENT is not at `external/TRIDENT`:
 he-quality doctor --trident-dir /path/to/TRIDENT
 ```
 
-If the model artifacts are not at `source/working_dir`:
+If you want to override the bundled model files:
 
 ```bash
-he-quality doctor --artifact-root /path/to/working_dir
+he-quality doctor --artifact-root /path/to/model_dir
 ```
 
 The doctor command checks:
@@ -140,7 +130,7 @@ The doctor command checks:
 - `vips` on `PATH`
 - TRIDENT callable from the current Python environment
 - Hugging Face authentication
-- QC model artifacts
+- bundled QC model artifacts
 
 ### Step 7. Run Quality Control
 
@@ -166,10 +156,10 @@ If TRIDENT is not at `external/TRIDENT`, add:
 --trident-dir /path/to/TRIDENT
 ```
 
-If the model artifacts are not at `source/working_dir`, add:
+If you want to override the bundled model files, add:
 
 ```bash
---artifact-root /path/to/working_dir
+--artifact-root /path/to/model_dir
 ```
 
 ## What This Repo Does
@@ -222,7 +212,7 @@ Common failure points:
 - OpenSlide system libraries missing
 - TRIDENT cloned but not installed into the current Python environment
 - missing Hugging Face auth for `uni_v2`
-- missing model `working_dir` artifacts
+- missing bundled or overridden QC model files
 - multiple files in the input folder resolving to the same slide ID
 - mixing checkpoint, scaler, and selection files from different runs in advanced mode
 
@@ -321,6 +311,7 @@ src/ebme398_artifact_detection/   package code
 scripts/he_quality.py             script entrypoint
 configs/splits/                   reusable split JSON
 docs/recovered_workflow.md        notebook-to-package mapping
+models/qc/                       bundled QC inference files
 source/                           recovered local artifacts, ignored by git
 analysis/                         scratch outputs, ignored by git
 ```

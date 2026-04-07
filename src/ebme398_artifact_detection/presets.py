@@ -29,9 +29,9 @@ HYBRID_INFERENCE_PRESETS: dict[str, HybridInferencePreset] = {
         patch_encoder="uni_v2",
         model_kind="mlp",
         hidden_dim=512,
-        selection_relpath="10x_512px_0px_overlap/experiments/Multi_class/S4_new/spearman_ovr_select_thr0.04.json",
-        scaler_relpath="10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/scaler.joblib",
-        checkpoint_relpath="10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/best_pt_mlp_multiclass.pt",
+        selection_relpath="selection.json",
+        scaler_relpath="scaler.joblib",
+        checkpoint_relpath="checkpoint.pt",
     ),
 }
 
@@ -48,7 +48,7 @@ def get_hybrid_inference_preset(name: str) -> HybridInferencePreset:
 
 
 def repo_default_artifact_root() -> Path:
-    return Path(__file__).resolve().parents[2] / "source" / "working_dir"
+    return Path(__file__).resolve().parents[2] / "models" / "qc"
 
 
 def resolve_artifact_root(artifact_root: str | Path | None = None) -> Path:
