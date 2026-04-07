@@ -127,19 +127,28 @@ def check_trident(trident_dir: str | Path) -> CheckResult:
                 "python -m pip install -e ."
             ),
         )
-    ok, output = _run_command([sys.executable, str(script), "--help"], cwd=trident_dir)
+    import_check = (
+        "import sys; "
+        f"sys.path.insert(0, {str(trident_dir)!r}); "
+        "import trident; "
+        "from trident import Processor; "
+        "from trident.patch_encoder_models.load import encoder_factory; "
+        "from trident.segmentation_models.load import segmentation_model_factory; "
+        "print(trident.__file__)"
+    )
+    ok, output = _run_command([sys.executable, "-c", import_check], cwd=trident_dir, timeout=120)
     if not ok:
         return CheckResult(
             name="TRIDENT",
             ok=False,
-            summary=f"TRIDENT help check failed under {sys.executable}: {output}",
+            summary=f"TRIDENT import check failed under {sys.executable}: {output}",
             fix=(
                 "Install TRIDENT into the same active Python environment as this repo.\n"
                 "cd {trident_dir}\n"
                 "python -m pip install -e ."
             ).format(trident_dir=trident_dir),
         )
-    return CheckResult(name="TRIDENT", ok=True, summary=f"callable from {trident_dir}")
+    return CheckResult(name="TRIDENT", ok=True, summary=f"imports cleanly from {trident_dir}")
 
 
 def check_hugging_face_auth() -> CheckResult:
