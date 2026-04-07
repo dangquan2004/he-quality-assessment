@@ -1,38 +1,96 @@
 # H&E Quality Assessment
 
-Installable Python tooling for the recovered `EBME398_ArtifactDetection` workflow. This repo translates the original notebook pipeline into a normal package and CLI for preprocessing, training, and hybrid inference on one slide or a folder of slides.
+Python package and CLI for the recovered `EBME398_ArtifactDetection` workflow.
 
-## What This Repo Is For
+This repo currently has one clear deployment path:
 
-- WSI preprocessing into pyramidal TIFF
-- TRIDENT feature extraction with `uni_v2` or `conch_v1`
-- tile caching for image-model training
-- handcrafted feature extraction
-- frozen-feature and fusion-model training
-- hybrid inference from raw WSI input, either one slide or a folder of slides
+- `S4_new` multiclass hybrid inference
 
-This repo does not re-pretrain UNI or CONCH. Those remain external dependencies.
+That path takes either:
 
-## Current Deployment Target
+- one raw WSI such as `.ome.tiff`
+- or a folder of WSIs
 
-The recommended deployment path is now the recovered `S4_new` multiclass hybrid model, not the old `G4` binary path.
+and produces tile-level predictions plus a slide-level summary for each slide.
 
-Reason:
+## Start Here: I Only Have WSI TIFF Files
 
-- `S4_new` has a recoverable checkpoint, scaler, and feature-selection artifact set
-- `G4` does not currently have a recoverable matching selection file
+If you are a new user and all you have is one WSI TIFF or a folder of WSI TIFFs, this is the path you want.
 
-For the recovered local artifacts, the matching `S4_new` trio is:
+You do not need to:
 
-- selection: `source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/spearman_ovr_select_thr0.04.json`
-- scaler: `source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/scaler.joblib`
-- checkpoint: `source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/best_pt_mlp_multiclass.pt`
+- train a model
+- prepare label CSVs
+- manually choose a checkpoint, scaler, or selection file
 
-The repo now supports both the current `embedding_keep_idx` format and the older recovered `uni_keep_idx` format in selection JSON files.
+You do need to:
+
+1. install this repo
+2. install TRIDENT
+3. authenticate to Hugging Face for `uni_v2`
+4. run `infer-hybrid-wsi` on your slide or folder
+
+What the repo handles for you:
+
+- converts raw `.tif`, `.tiff`, `.ome.tif`, or `.ome.tiff` to pyramidal TIFF if needed
+- runs TRIDENT feature extraction
+- applies the recovered `S4_new` multiclass hybrid model
+- writes predictions for each slide
+
+## Quick Start
+
+If you only want inference, do these four things:
+
+1. install the package and system dependencies
+2. clone TRIDENT
+3. authenticate to Hugging Face for `uni_v2`
+4. run `infer-hybrid-wsi` with the `s4_new_multiclass` preset
+
+Single-slide example:
+
+```bash
+he-quality infer-hybrid-wsi \
+  --preset s4_new_multiclass \
+  --input-path data/inference/SR999.ome.tiff \
+  --output-dir outputs/inference/SR999 \
+  --trident-dir external/TRIDENT \
+  --device auto
+```
+
+Folder-of-slides example:
+
+```bash
+he-quality infer-hybrid-wsi \
+  --preset s4_new_multiclass \
+  --input-path data/inference_wsis \
+  --output-dir outputs/inference_batch \
+  --trident-dir external/TRIDENT \
+  --device auto
+```
+
+For folder input, the CLI writes:
+
+- `output_dir/<slide_id>/hybrid_tile_predictions.csv`
+- `output_dir/<slide_id>/hybrid_slide_summary.json`
+- `output_dir/<slide_id>/hybrid_inference_provenance.json`
+- `output_dir/hybrid_batch_summary.json`
+
+## What This Repo Does
+
+- converts raw TIFF-like WSIs into pyramidal TIFF when needed
+- runs TRIDENT feature extraction with `uni_v2` or `conch_v1`
+- caches labeled tiles for image-model training
+- extracts handcrafted features
+- trains handcrafted, CNN, frozen-feature, and fusion models
+- runs hybrid inference on one WSI or a folder of WSIs
+
+This repo does not pretrain UNI or CONCH. Those remain external dependencies.
 
 ## Installation
 
-Recommended Python: `3.10+`
+Recommended Python:
+
+- `3.10+`
 
 System dependencies:
 
@@ -74,66 +132,78 @@ python scripts/he_quality.py --help
 
 Important:
 
-- `pip install .` installs only the Python package
-- TRIDENT must be checked out separately
+- `pip install .` installs only this Python package
+- TRIDENT must be installed separately
 - `uni_v2` requires gated Hugging Face access to `MahmoodLab/UNI2-h`
 - `conch_v1` also depends on gated external model access
 - `train-sklearn --estimator xgb` needs `.[xgb]`
 - `train-embedding --model-kind kan` needs `.[kan]`
 
+## Before You Run Inference
+
+Make sure all of these are true:
+
+- your WSI is a supported file such as `.tif`, `.tiff`, `.ome.tif`, `.ome.tiff`, `.svs`, `.ndpi`, or `.mrxs`
+- `vips` works in the terminal
+- `openslide` imports in Python
+- you have a local TRIDENT checkout
+- you have Hugging Face access to `MahmoodLab/UNI2-h` if you use `uni_v2`
+- the recovered `working_dir` artifacts are available either at `source/working_dir` or through `--artifact-root`
+
 ## Inference
 
-### What The Inference Command Does
+### Deployment Model
 
-`infer-hybrid-wsi` performs hybrid inference for either:
+The current deployable model is the recovered `S4_new` multiclass hybrid pipeline.
 
-- one raw WSI such as `SR999.ome.tiff`
-- one folder of WSIs, with one output subfolder per slide
+Why this is the default:
 
-For each slide, it:
+- `S4_new` has a recoverable checkpoint, scaler, and selection file
+- the old `G4` binary hybrid path does not currently have a recoverable matching selection file
 
-1. convert raw WSI to pyramidal TIFF if needed
-2. run TRIDENT on that slide
-3. extract handcrafted features from the same TRIDENT coordinates
-4. apply the saved fusion selection
-5. apply the saved scaler
-6. run the saved downstream classifier
-7. write tile predictions, slide summary, and provenance metadata
+The matching recovered `S4_new` artifact trio is:
 
-### Required Inputs
+- selection: `10x_512px_0px_overlap/experiments/Multi_class/S4_new/spearman_ovr_select_thr0.04.json`
+- scaler: `10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/scaler.joblib`
+- checkpoint: `10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/best_pt_mlp_multiclass.pt`
 
-You need:
+The CLI preset `s4_new_multiclass` resolves those for you, so a new user does not need to manually wire them.
 
-- one raw WSI or one folder of WSIs
-- a local TRIDENT checkout
-- a matching checkpoint `.pt`
-- a matching scaler `.joblib`
-- a matching fusion selection JSON
+### What `infer-hybrid-wsi` Does
+
+For each slide, the command:
+
+1. converts raw WSI to pyramidal TIFF if needed
+2. runs TRIDENT on that slide
+3. reads TRIDENT coordinates
+4. extracts handcrafted features from the same coordinates
+5. applies the saved feature selection
+6. applies the saved scaler
+7. runs the downstream classifier
+8. writes tile predictions, slide summary, and provenance
+
+### What You Need To Provide
+
+As a user, you only need to provide:
+
+- one WSI file or one folder of WSIs
+- a TRIDENT checkout
 - OpenSlide and `vips`
+- Hugging Face authentication if you use `uni_v2`
 
-The checkpoint, scaler, selection JSON, and encoder choice must come from the same model family.
+If you use the preset, the repo resolves the recovered checkpoint, scaler, and selection JSON automatically.
 
-### Recommended Preset
+### Artifact Root
 
-The CLI now exposes a preset for the current deployment target:
+The preset expects an artifact root containing the recovered `working_dir` tree.
 
-- `s4_new_multiclass`
-
-That preset resolves the recovered:
-
-- checkpoint
-- scaler
-- selection JSON
-- task
-- encoder
-
-It expects an artifact root containing the recovered `working_dir` tree. By default it looks for:
+Default location inside this repo:
 
 ```text
 source/working_dir
 ```
 
-inside the repo clone. If your artifacts live elsewhere, pass:
+If your recovered artifacts live elsewhere, either pass:
 
 ```bash
 --artifact-root /path/to/working_dir
@@ -168,11 +238,11 @@ or:
 export HF_TOKEN=your_hugging_face_token
 ```
 
-Without Hugging Face authentication, `uni_v2` extraction will fail even if this repo is installed correctly.
+Without Hugging Face authentication, `uni_v2` feature extraction will fail.
 
-### Recommended `S4_new` Multiclass Examples
+### Recommended Commands
 
-Single-slide, preset-driven:
+Single slide:
 
 ```bash
 he-quality infer-hybrid-wsi \
@@ -183,7 +253,7 @@ he-quality infer-hybrid-wsi \
   --device auto
 ```
 
-Folder-of-slides, preset-driven:
+Folder of slides:
 
 ```bash
 he-quality infer-hybrid-wsi \
@@ -194,7 +264,7 @@ he-quality infer-hybrid-wsi \
   --device auto
 ```
 
-Manual artifact wiring is still supported if you do not want the preset:
+Manual artifact wiring is still supported:
 
 ```bash
 he-quality infer-hybrid-wsi \
@@ -210,11 +280,11 @@ he-quality infer-hybrid-wsi \
   --device auto
 ```
 
-Use `best_pt_mlp_multiclass.pt`, not the multihead checkpoint, for the current CLI path.
+Use `best_pt_mlp_multiclass.pt`, not the multihead checkpoint, for the current CLI.
 
 ### Outputs
 
-For single-slide input:
+Single-slide run:
 
 - `hybrid_tile_predictions.csv`
 - `hybrid_slide_summary.json`
@@ -222,11 +292,19 @@ For single-slide input:
 - prepared pyramidal WSI under `hybrid_inference/prepared_wsi/`
 - TRIDENT features under `hybrid_inference/trident/<encoder>_mag<mag>_ps<patch_size>/`
 
-For folder input:
+The file most users care about first is:
+
+- `hybrid_slide_summary.json`
+
+Folder run:
 
 - one subfolder per slide under `output_dir/<slide_id>/`
 - each subfolder contains the same single-slide outputs
 - one root-level `hybrid_batch_summary.json`
+
+For a folder run, the main top-level summary is:
+
+- `hybrid_batch_summary.json`
 
 ### Common Failure Points
 
@@ -235,14 +313,13 @@ For folder input:
 - wrong or missing TRIDENT checkout
 - missing Hugging Face auth for `uni_v2`
 - missing `source/working_dir` artifacts when using `--preset` without `--artifact-root`
-- multiple input files resolving to the same slide ID in a folder run
-- mismatched checkpoint / scaler / selection JSON
+- multiple files in the input folder resolving to the same slide ID
+- mismatched checkpoint, scaler, and selection JSON
 - using the multihead `S4_new` checkpoint with the current single-head CLI
-- using artifacts from different tasks or thresholds
 
 ## Training Overview
 
-Inference is the main deployable surface. Training remains available, but the workflow is easier to follow as phases rather than one long numbered list.
+Inference is the main deployable surface. Training is still available, but it is easier to think about in four phases.
 
 ### 1. Preprocess WSI And Run TRIDENT
 
@@ -268,7 +345,7 @@ he-quality run-trident \
   --patch-size 512
 ```
 
-### 2. Build Tile And Handcrafted Feature Data
+### 2. Build Tile And Handcrafted Features
 
 Expected per-slide label CSV:
 
@@ -365,6 +442,13 @@ he-quality train-embedding \
   --test-dir artifacts/fusion/test
 ```
 
+## Labels
+
+- binary: `clean` vs `unclean`
+- multiclass: `clean`, `tissue_damage`, `blurry+fold`
+
+The code normalizes notebook-era variants such as `tissue_damge` and `fold+blur`.
+
 ## Repository Layout
 
 ```text
@@ -375,13 +459,6 @@ docs/recovered_workflow.md        notebook-to-package mapping
 source/                           recovered local artifacts, ignored by git
 analysis/                         scratch outputs, ignored by git
 ```
-
-## Labels
-
-- binary: `clean` vs `unclean`
-- multiclass: `clean`, `tissue_damage`, `blurry+fold`
-
-The code normalizes notebook-era variants such as `tissue_damge` and `fold+blur`.
 
 ## External References
 
