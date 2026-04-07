@@ -72,6 +72,14 @@ def resolve_model_bundle(
     patch_encoder = manifest.get("patch_encoder", preset.patch_encoder) if isinstance(manifest, dict) else preset.patch_encoder
     model_kind = manifest.get("model_kind", preset.model_kind) if isinstance(manifest, dict) else preset.model_kind
     hidden_dim = int(manifest.get("hidden_dim", preset.hidden_dim)) if isinstance(manifest, dict) else preset.hidden_dim
+    preprocessing = manifest.get("preprocessing", {}) if isinstance(manifest, dict) else {}
+    mpp = float(preprocessing.get("mpp", preset.mpp))
+    mag = int(preprocessing.get("mag", preset.mag))
+    patch_size = int(preprocessing.get("patch_size", preset.patch_size))
+    patch_size_level0 = int(preprocessing.get("patch_size_level0", preset.patch_size_level0))
+    target_patch_size = int(preprocessing.get("target_patch_size", preset.target_patch_size))
+    quality = int(preprocessing.get("quality", preset.quality))
+    slide_threshold = float(preprocessing.get("slide_threshold", preset.slide_threshold))
 
     return {
         "model_dir": root,
@@ -84,4 +92,11 @@ def resolve_model_bundle(
         "patch_encoder": patch_encoder,
         "model_kind": model_kind,
         "hidden_dim": hidden_dim,
+        "mpp": mpp,
+        "mag": mag,
+        "patch_size": patch_size,
+        "patch_size_level0": patch_size_level0,
+        "target_patch_size": target_patch_size,
+        "quality": quality,
+        "slide_threshold": slide_threshold,
     }

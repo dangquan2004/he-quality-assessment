@@ -113,6 +113,16 @@ That bundle includes:
 - `scaler.joblib`
 - `selection.json`
 
+The manifest also stores the preprocessing contract for the bundled model, so `run-qc` automatically uses the model's own:
+
+- `mpp`
+- `mag`
+- `patch_size`
+- `patch_size_level0`
+- `target_patch_size`
+- `quality`
+- `slide_threshold`
+
 You only need `--model-dir` if you want to override the bundled model with a different compatible model directory.
 
 If you prefer an environment variable, you can also set:
@@ -199,10 +209,11 @@ For each slide, the command:
 2. runs TRIDENT on that slide
 3. reads TRIDENT coordinates
 4. extracts handcrafted features from the same coordinates
-5. applies the saved feature selection
-6. applies the saved scaler
-7. runs the downstream classifier
-8. writes tile predictions, slide summary, and provenance
+5. applies the model-bundle preprocessing contract automatically
+6. applies the saved feature selection
+7. applies the saved scaler
+8. runs the downstream classifier
+9. writes tile predictions, slide summary, and provenance
 
 ## Most Important Outputs
 

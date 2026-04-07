@@ -18,6 +18,13 @@ class HybridInferencePreset:
     patch_encoder: str
     model_kind: str
     hidden_dim: int
+    mpp: float
+    mag: int
+    patch_size: int
+    patch_size_level0: int
+    target_patch_size: int
+    quality: int
+    slide_threshold: float
     selection_relpath: str
     scaler_relpath: str
     checkpoint_relpath: str
@@ -30,6 +37,13 @@ HYBRID_INFERENCE_PRESETS: dict[str, HybridInferencePreset] = {
         patch_encoder="uni_v2",
         model_kind="mlp",
         hidden_dim=512,
+        mpp=0.25,
+        mag=10,
+        patch_size=512,
+        patch_size_level0=3072,
+        target_patch_size=512,
+        quality=90,
+        slide_threshold=0.5,
         selection_relpath="selection.json",
         scaler_relpath="scaler.joblib",
         checkpoint_relpath="checkpoint.pt",

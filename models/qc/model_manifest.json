@@ -5,6 +5,15 @@
   "patch_encoder": "uni_v2",
   "model_kind": "mlp",
   "hidden_dim": 512,
+  "preprocessing": {
+    "mpp": 0.25,
+    "mag": 10,
+    "patch_size": 512,
+    "patch_size_level0": 3072,
+    "target_patch_size": 512,
+    "quality": 90,
+    "slide_threshold": 0.5
+  },
   "labels": [
     "clean",
     "tissue_damage",

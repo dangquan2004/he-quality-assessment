@@ -139,16 +139,16 @@ def build_parser() -> argparse.ArgumentParser:
     infer_hybrid.add_argument("--patch-encoder", choices=["uni_v2", "conch_v1"])
     infer_hybrid.add_argument("--model-kind", choices=["mlp", "kan"])
     infer_hybrid.add_argument("--hidden-dim", type=int)
-    infer_hybrid.add_argument("--mpp", type=float, default=0.25)
-    infer_hybrid.add_argument("--mag", type=int, default=10)
-    infer_hybrid.add_argument("--patch-size", type=int, default=512)
-    infer_hybrid.add_argument("--patch-size-level0", type=int, default=3072)
-    infer_hybrid.add_argument("--target-patch-size", type=int, default=512)
-    infer_hybrid.add_argument("--quality", type=int, default=90)
+    infer_hybrid.add_argument("--mpp", type=float)
+    infer_hybrid.add_argument("--mag", type=int)
+    infer_hybrid.add_argument("--patch-size", type=int)
+    infer_hybrid.add_argument("--patch-size-level0", type=int)
+    infer_hybrid.add_argument("--target-patch-size", type=int)
+    infer_hybrid.add_argument("--quality", type=int)
     infer_hybrid.add_argument("--batch-size", type=int, default=256)
     infer_hybrid.add_argument("--gpu", type=int)
     infer_hybrid.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
-    infer_hybrid.add_argument("--slide-threshold", type=float, default=0.5)
+    infer_hybrid.add_argument("--slide-threshold", type=float)
 
     run_qc = subparsers.add_parser(
         "run-qc",
@@ -340,6 +340,13 @@ def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
 
     model_kind = model_kind or "mlp"
     hidden_dim = 512 if hidden_dim is None else hidden_dim
+    mpp = args.mpp
+    mag = args.mag
+    patch_size = args.patch_size
+    patch_size_level0 = args.patch_size_level0
+    target_patch_size = args.target_patch_size
+    quality = args.quality
+    slide_threshold = args.slide_threshold
 
     missing = []
     if checkpoint_path is None:
@@ -355,6 +362,22 @@ def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
     if missing:
         joined = ", ".join(missing)
         raise SystemExit(f"infer-hybrid-wsi is missing required arguments: {joined}. Use --preset or pass them explicitly.")
+    if bundle is not None:
+        mpp = bundle["mpp"] if mpp is None else mpp
+        mag = bundle["mag"] if mag is None else mag
+        patch_size = bundle["patch_size"] if patch_size is None else patch_size
+        patch_size_level0 = bundle["patch_size_level0"] if patch_size_level0 is None else patch_size_level0
+        target_patch_size = bundle["target_patch_size"] if target_patch_size is None else target_patch_size
+        quality = bundle["quality"] if quality is None else quality
+        slide_threshold = bundle["slide_threshold"] if slide_threshold is None else slide_threshold
+    else:
+        mpp = 0.25 if mpp is None else mpp
+        mag = 10 if mag is None else mag
+        patch_size = 512 if patch_size is None else patch_size
+        patch_size_level0 = 3072 if patch_size_level0 is None else patch_size_level0
+        target_patch_size = 512 if target_patch_size is None else target_patch_size
+        quality = 90 if quality is None else quality
+        slide_threshold = 0.5 if slide_threshold is None else slide_threshold
 
     payload = predict_hybrid_from_path(
         input_path=args.input_path,
@@ -367,16 +390,16 @@ def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
         patch_encoder=patch_encoder,
         model_kind=model_kind,
         hidden_dim=hidden_dim,
-        mpp=args.mpp,
-        mag=args.mag,
-        patch_size=args.patch_size,
-        patch_size_level0=args.patch_size_level0,
-        target_patch_size=args.target_patch_size,
-        quality=args.quality,
+        mpp=mpp,
+        mag=mag,
+        patch_size=patch_size,
+        patch_size_level0=patch_size_level0,
+        target_patch_size=target_patch_size,
+        quality=quality,
         batch_size=args.batch_size,
         gpu=args.gpu,
         device=None if args.device == "auto" else args.device,
-        slide_threshold=args.slide_threshold,
+        slide_threshold=slide_threshold,
         model_dir=None if bundle is None else bundle["model_dir"],
         model_manifest_path=None if bundle is None else bundle["manifest_path"],
     )
@@ -401,6 +424,13 @@ def _handle_run_qc(args: argparse.Namespace) -> None:
         patch_encoder=bundle["patch_encoder"],
         model_kind=bundle["model_kind"],
         hidden_dim=bundle["hidden_dim"],
+        mpp=bundle["mpp"],
+        mag=bundle["mag"],
+        patch_size=bundle["patch_size"],
+        patch_size_level0=bundle["patch_size_level0"],
+        target_patch_size=bundle["target_patch_size"],
+        quality=bundle["quality"],
+        slide_threshold=bundle["slide_threshold"],
         model_dir=bundle["model_dir"],
         model_manifest_path=bundle["manifest_path"],
         device=None if args.device == "auto" else args.device,

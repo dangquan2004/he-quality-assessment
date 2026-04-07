@@ -9,6 +9,18 @@ Files:
 - `scaler.joblib`: fitted feature scaler for inference
 - `selection.json`: saved handcrafted-plus-embedding feature selection
 
+`model_manifest.json` also stores the preprocessing contract used for inference, including:
+
+- `mpp`
+- `mag`
+- `patch_size`
+- `patch_size_level0`
+- `target_patch_size`
+- `quality`
+- `slide_threshold`
+
+`he-quality run-qc` reads those values automatically, so normal users only need `--input-path` and `--output-dir`.
+
 If you want to override this bundled model, pass:
 
 ```bash

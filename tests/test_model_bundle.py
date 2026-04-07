@@ -28,6 +28,15 @@ class ModelBundleTests(unittest.TestCase):
                 "patch_encoder": "uni_v2",
                 "model_kind": "mlp",
                 "hidden_dim": 256,
+                "preprocessing": {
+                    "mpp": 0.5,
+                    "mag": 20,
+                    "patch_size": 256,
+                    "patch_size_level0": 2048,
+                    "target_patch_size": 256,
+                    "quality": 85,
+                    "slide_threshold": 0.4,
+                },
                 "files": {
                     "checkpoint": {"path": checkpoint.name, "sha256": file_sha256(checkpoint)},
                     "scaler": {"path": scaler.name, "sha256": file_sha256(scaler)},
@@ -45,6 +54,13 @@ class ModelBundleTests(unittest.TestCase):
             self.assertEqual(bundle["model_kind"], "mlp")
             self.assertEqual(bundle["hidden_dim"], 256)
             self.assertEqual(bundle["task"].value, "multiclass")
+            self.assertEqual(bundle["mpp"], 0.5)
+            self.assertEqual(bundle["mag"], 20)
+            self.assertEqual(bundle["patch_size"], 256)
+            self.assertEqual(bundle["patch_size_level0"], 2048)
+            self.assertEqual(bundle["target_patch_size"], 256)
+            self.assertEqual(bundle["quality"], 85)
+            self.assertEqual(bundle["slide_threshold"], 0.4)
 
     def test_resolve_model_bundle_raises_on_checksum_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -66,6 +82,34 @@ class ModelBundleTests(unittest.TestCase):
 
             with self.assertRaises(RuntimeError):
                 resolve_model_bundle(model_dir=root)
+
+    def test_resolve_model_bundle_falls_back_to_preset_preprocessing_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            checkpoint = root / "checkpoint.pt"
+            scaler = root / "scaler.joblib"
+            selection = root / "selection.json"
+            checkpoint.write_bytes(b"checkpoint")
+            scaler.write_bytes(b"scaler")
+            selection.write_text("{}")
+            manifest = {
+                "files": {
+                    "checkpoint": {"path": checkpoint.name, "sha256": file_sha256(checkpoint)},
+                    "scaler": {"path": scaler.name, "sha256": file_sha256(scaler)},
+                    "selection": {"path": selection.name, "sha256": file_sha256(selection)},
+                }
+            }
+            (root / "model_manifest.json").write_text(json.dumps(manifest))
+
+            bundle = resolve_model_bundle(model_dir=root)
+
+            self.assertEqual(bundle["mpp"], 0.25)
+            self.assertEqual(bundle["mag"], 10)
+            self.assertEqual(bundle["patch_size"], 512)
+            self.assertEqual(bundle["patch_size_level0"], 3072)
+            self.assertEqual(bundle["target_patch_size"], 512)
+            self.assertEqual(bundle["quality"], 90)
+            self.assertEqual(bundle["slide_threshold"], 0.5)
 
 
 if __name__ == "__main__":  # pragma: no cover
