@@ -1,19 +1,25 @@
 # H&E Quality Assessment
 
-Python package and CLI for the recovered `EBME398_ArtifactDetection` workflow.
+Python package and CLI for H&E whole-slide quality control, plus the recovered `EBME398_ArtifactDetection` research workflow.
 
-This repo currently has one clear deployment path:
+For most users, this repo has one main job:
 
-- whole-slide quality-control inference
+- run quality control on whole-slide images
 
-That path takes either:
+The user-facing inference command is:
+
+```bash
+he-quality run-qc --input-path /path/to/wsi_or_folder --output-dir /path/to/output
+```
+
+It accepts either:
 
 - one raw WSI such as `.ome.tiff`
 - or a folder of WSIs
 
-and produces tile-level predictions plus a slide-level summary for each slide.
+and writes tile-level predictions plus a slide-level summary for each slide.
 
-If you only have WSI TIFF files and want quality-control results out, follow the quick start below.
+If you only want QC results from WSI files, start with the quick start below.
 
 ## Quick Start
 
@@ -66,9 +72,7 @@ python -m pip install '.[dev]'
 
 ### Step 3. Clone TRIDENT And Install It Into The Same Environment
 
-This matters.
-
-`he-quality` launches TRIDENT using the current Python interpreter, so TRIDENT should be installed into the same active environment as this repo.
+`he-quality` launches TRIDENT using the current Python interpreter, so TRIDENT must be installed into the same active environment as this repo.
 
 ```bash
 git clone https://github.com/mahmoodlab/TRIDENT.git external/TRIDENT
@@ -96,15 +100,15 @@ If you prefer environment variables:
 export HF_TOKEN=your_hugging_face_token
 ```
 
-### Step 5. Check The Bundled QC Model Files
+### Step 5. Use The Bundled QC Model Files
 
-This repo now ships the QC inference files directly in:
+This repo already ships the QC inference bundle in:
 
 ```text
 models/qc
 ```
 
-By default, `run-qc` uses those bundled files automatically.
+By default, `run-qc` uses those bundled files automatically. You do not need to download a separate checkpoint bundle.
 
 That bundle includes:
 
@@ -113,7 +117,7 @@ That bundle includes:
 - `scaler.joblib`
 - `selection.json`
 
-The manifest also stores the preprocessing contract for the bundled model, so `run-qc` automatically uses the model's own:
+The manifest stores the preprocessing contract for the bundled model, so `run-qc` automatically uses the model's own:
 
 - `mpp`
 - `mag`
@@ -133,7 +137,7 @@ export HE_QUALITY_MODEL_DIR=/path/to/model_dir
 
 ### Step 6. Run The Gate Check
 
-Before your first inference run:
+Before your first inference run, check that the full stack is available:
 
 ```bash
 he-quality doctor
@@ -151,7 +155,7 @@ If you want to override the bundled model files:
 he-quality doctor --model-dir /path/to/model_dir
 ```
 
-The doctor command checks:
+`he-quality doctor` checks:
 
 - Python version compatibility for the full inference stack
 - `openslide` import
@@ -191,6 +195,8 @@ If you want to override the bundled model files, add:
 --model-dir /path/to/model_dir
 ```
 
+That is the standard deployment path. Most users do not need anything else in this README.
+
 ## What This Repo Does
 
 - converts raw TIFF-like WSIs into pyramidal TIFF when needed
@@ -201,7 +207,7 @@ If you want to override the bundled model files, add:
 
 This repo does not pretrain UNI or CONCH. Those remain external dependencies.
 
-## What `run-qc` Does
+## What `run-qc` Does Internally
 
 For each slide, the command:
 
@@ -259,7 +265,7 @@ he-quality doctor
 
 ## Advanced Inference
 
-If you need full manual control, the lower-level command is:
+Use this only if you need full manual control over the inference artifacts. Most users should stay with `run-qc`.
 
 - `infer-hybrid-wsi`
 
@@ -279,7 +285,7 @@ he-quality infer-hybrid-wsi \
   --device auto
 ```
 
-Use matching artifacts from the same model run.
+Use matching artifacts from the same model run. Do not mix a checkpoint, scaler, and feature-selection file from different runs.
 
 ## Training Overview
 
