@@ -52,6 +52,10 @@ def repo_default_model_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "models" / "qc"
 
 
+def cwd_default_model_dir() -> Path:
+    return Path.cwd() / "models" / "qc"
+
+
 def resolve_model_dir(model_dir: str | Path | None = None) -> Path:
     if model_dir is not None:
         root = Path(model_dir).expanduser().resolve()
@@ -60,7 +64,8 @@ def resolve_model_dir(model_dir: str | Path | None = None) -> Path:
         if env_root:
             root = Path(env_root).expanduser().resolve()
         else:
-            root = repo_default_model_dir().resolve()
+            candidates = [cwd_default_model_dir().resolve(), repo_default_model_dir().resolve()]
+            root = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
     if not root.exists():
         raise FileNotFoundError(
             f"model directory does not exist: {root}. "

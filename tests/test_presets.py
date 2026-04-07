@@ -1,9 +1,25 @@
+import os
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 
 from ebme398_artifact_detection.labels import Task
-from ebme398_artifact_detection.presets import get_hybrid_inference_preset, resolve_preset_artifact_path
+from ebme398_artifact_detection.presets import (
+    get_hybrid_inference_preset,
+    resolve_model_dir,
+    resolve_preset_artifact_path,
+)
+
+
+@contextmanager
+def chdir(path: Path):
+    old = Path.cwd()
+    try:
+        os.chdir(path)
+        yield
+    finally:
+        os.chdir(old)
 
 
 class PresetTests(unittest.TestCase):
@@ -22,6 +38,14 @@ class PresetTests(unittest.TestCase):
             target.write_text("{}")
             resolved = resolve_preset_artifact_path(preset.selection_relpath, root)
             self.assertEqual(resolved, target.resolve())
+
+    def test_resolve_model_dir_prefers_cwd_clone_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            model_dir = root / "models" / "qc"
+            model_dir.mkdir(parents=True)
+            with chdir(root):
+                self.assertEqual(resolve_model_dir(), model_dir.resolve())
 
 
 if __name__ == "__main__":  # pragma: no cover

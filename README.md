@@ -41,16 +41,20 @@ sudo apt-get install libopenslide-dev openslide-tools libvips-tools
 
 Recommended Python:
 
-- `3.10+`
+- `3.10` or `3.11`
+
+Do not use Python `3.12+` for the default inference workflow. `he-quality` and TRIDENT need to run in the same environment, and TRIDENT currently supports Python `<3.12`.
 
 ```bash
 git clone https://github.com/dangquan2004/he-quality-assessment.git
 cd he-quality-assessment
-python3 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install .
 ```
+
+If `python3.11` is not available on your machine, use `python3.10` instead.
 
 Optional extras:
 
@@ -139,10 +143,11 @@ he-quality doctor --model-dir /path/to/model_dir
 
 The doctor command checks:
 
+- Python version compatibility for the full inference stack
 - `openslide` import
 - `vips` on `PATH`
 - TRIDENT callable from the current Python environment
-- Hugging Face authentication
+- verified access to `MahmoodLab/UNI2-h`
 - bundled QC model artifacts
 - model-manifest checksums when `model_manifest.json` is present
 

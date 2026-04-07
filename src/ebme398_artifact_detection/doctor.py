@@ -45,6 +45,22 @@ def _default_hf_token_path() -> Path:
     return Path.home() / ".cache" / "huggingface" / "token"
 
 
+def check_python_runtime() -> CheckResult:
+    version = sys.version_info
+    summary = f"{version.major}.{version.minor}.{version.micro} ({sys.executable})"
+    if version < (3, 10) or version >= (3, 12):
+        return CheckResult(
+            name="Python runtime",
+            ok=False,
+            summary=f"{summary} is outside the supported range for the full inference stack",
+            fix=(
+                "Use Python 3.10 or 3.11 for this repo.\n"
+                "TRIDENT currently needs to be installed into the same environment and does not support Python 3.12+."
+            ),
+        )
+    return CheckResult(name="Python runtime", ok=True, summary=summary)
+
+
 def check_openslide() -> CheckResult:
     try:
         import openslide
@@ -128,37 +144,69 @@ def check_trident(trident_dir: str | Path) -> CheckResult:
 
 def check_hugging_face_auth() -> CheckResult:
     env_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-    if env_token:
-        return CheckResult(
-            name="Hugging Face auth",
-            ok=True,
-            summary="token found in environment (`HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`)",
-        )
-
-    hf_cli = shutil.which("hf")
-    if hf_cli is not None:
-        ok, output = _run_command([hf_cli, "auth", "whoami"])
-        if ok:
-            return CheckResult(name="Hugging Face auth", ok=True, summary=f"authenticated: {output}")
-
     token_path = _default_hf_token_path()
-    if token_path.exists() and token_path.read_text().strip():
+    token_source = None
+    token_for_hub: str | bool | None = None
+    if env_token:
+        token_source = "environment (`HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`)"
+        token_for_hub = env_token
+    elif token_path.exists() and token_path.read_text().strip():
+        token_source = f"token file at {token_path}"
+        token_for_hub = True
+
+    try:
+        from huggingface_hub import HfApi
+    except Exception:
+        if token_source is not None:
+            return CheckResult(
+                name="Hugging Face auth",
+                ok=False,
+                summary=f"found {token_source}, but `huggingface_hub` is not installed so gated-model access could not be verified",
+                fix=(
+                    "Install the Hub client in this environment and log in again.\n"
+                    "python -m pip install -U huggingface_hub\n"
+                    "hf auth login"
+                ),
+            )
         return CheckResult(
             name="Hugging Face auth",
-            ok=True,
-            summary=f"token file present at {token_path} (not revalidated against the Hub in this check)",
+            ok=False,
+            summary="no Hugging Face login detected",
+            fix=(
+                "Install the Hub CLI and log in with an approved token for MahmoodLab/UNI2-h.\n"
+                "python -m pip install -U huggingface_hub\n"
+                "hf auth login"
+            ),
         )
 
-    return CheckResult(
-        name="Hugging Face auth",
-        ok=False,
-        summary="no Hugging Face login detected",
-        fix=(
-            "Install the Hub CLI and log in with an approved token for MahmoodLab/UNI2-h.\n"
-            "python -m pip install -U huggingface_hub\n"
-            "hf auth login"
-        ),
-    )
+    api = HfApi()
+    try:
+        api.model_info("MahmoodLab/UNI2-h", token=token_for_hub)
+        if token_source is not None:
+            summary = f"verified access to MahmoodLab/UNI2-h using {token_source}"
+        else:
+            summary = "verified access to MahmoodLab/UNI2-h using the active Hugging Face login"
+        return CheckResult(name="Hugging Face auth", ok=True, summary=summary)
+    except Exception as exc:
+        hf_cli = shutil.which("hf")
+        cli_hint = None
+        if hf_cli is not None:
+            ok, output = _run_command([hf_cli, "auth", "whoami"])
+            if ok:
+                cli_hint = output
+        summary = f"could not verify access to MahmoodLab/UNI2-h: {exc}"
+        if cli_hint:
+            summary += f" (current CLI login: {cli_hint})"
+        return CheckResult(
+            name="Hugging Face auth",
+            ok=False,
+            summary=summary,
+            fix=(
+                "Log in with a token that has approved access to MahmoodLab/UNI2-h.\n"
+                "python -m pip install -U huggingface_hub\n"
+                "hf auth login"
+            ),
+        )
 
 
 def check_artifacts(*, model_dir: str | Path | None, preset_name: str = "s4_new_multiclass") -> CheckResult:
@@ -183,6 +231,7 @@ def check_artifacts(*, model_dir: str | Path | None, preset_name: str = "s4_new_
 
 def run_doctor(*, trident_dir: str | Path, model_dir: str | Path | None) -> int:
     checks = [
+        check_python_runtime(),
         check_openslide(),
         check_vips(),
         check_trident(trident_dir),

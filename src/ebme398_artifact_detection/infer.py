@@ -281,7 +281,7 @@ def summarize_hybrid_predictions_by_slide(
 
 
 def _pil_to_u8_chw(image: Image.Image) -> torch.Tensor:
-    arr = np.asarray(image, dtype=np.uint8)
+    arr = np.array(image, dtype=np.uint8, copy=True)
     return torch.from_numpy(arr).permute(2, 0, 1).contiguous()
 
 
@@ -317,12 +317,23 @@ def _ensure_pyramidal_single_wsi(input_wsi: str | Path, output_dir: str | Path, 
     return output_path
 
 
-def _find_single_feature_h5(job_dir: str | Path, slide_stem: str) -> Path:
+def _find_single_feature_h5(job_dir: str | Path, slide_stem: str, *, required: bool = True) -> Path | None:
     matches = sorted(Path(job_dir).glob(f"**/{slide_stem}.h5"))
     if not matches:
-        raise FileNotFoundError(f"could not find TRIDENT feature H5 for {slide_stem} under {job_dir}")
+        if required:
+            raise FileNotFoundError(f"could not find TRIDENT feature H5 for {slide_stem} under {job_dir}")
+        return None
     if len(matches) > 1:
         raise RuntimeError(f"found multiple TRIDENT feature H5 files for {slide_stem} under {job_dir}: {matches}")
+    return matches[0]
+
+
+def _find_single_coords_h5(job_dir: str | Path, slide_stem: str) -> Path | None:
+    matches = sorted(Path(job_dir).glob(f"**/patches/{slide_stem}_patches.h5"))
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise RuntimeError(f"found multiple TRIDENT coords H5 files for {slide_stem} under {job_dir}: {matches}")
     return matches[0]
 
 
@@ -380,6 +391,58 @@ def _extract_handcrafted_from_wsi_and_h5(
 
 def _write_inference_provenance(output_json: str | Path, payload: dict) -> Path:
     return dump_json(output_json, payload)
+
+
+def _empty_prediction_columns(task: Task) -> list[str]:
+    if task is Task.BINARY:
+        return ["prob_unclean", "pred_idx", "pred_label"]
+    labels = task_labels(task)
+    return [f"prob_{labels[idx]}" for idx in sorted(labels)] + ["pred_idx", "pred_label"]
+
+
+def _write_no_tissue_outputs(
+    *,
+    output_dir: str | Path,
+    slide_id: str,
+    task: Task,
+    slide_threshold: float,
+    reason: str,
+) -> dict:
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    predictions_csv = output_dir / "hybrid_tile_predictions.csv"
+    empty_columns = ["slide_id", "patch_id", "feature_row_idx", "x", "y", *_empty_prediction_columns(task)]
+    pd.DataFrame(columns=empty_columns).to_csv(predictions_csv, index=False)
+
+    row = {
+        "slide_id": slide_id,
+        "slide_pred_label": "no_tissue_detected",
+        "n_tiles": 0,
+        "status": "no_tissue_detected",
+        "reason": reason,
+    }
+    if task is Task.BINARY:
+        row.update(
+            {
+                "mean_prob_unclean": None,
+                "max_prob_unclean": None,
+                "slide_threshold": float(slide_threshold),
+            }
+        )
+    else:
+        labels = task_labels(task)
+        for idx in sorted(labels):
+            row[f"prob_{labels[idx]}"] = None
+
+    slide_summary_json = dump_json(output_dir / "hybrid_slide_summary.json", [row])
+    qc_results_json = dump_json(output_dir / "quality_control_results.json", [row])
+    return {
+        "predictions_csv": str(predictions_csv),
+        "slide_summary_json": str(slide_summary_json),
+        "qc_results_json": str(qc_results_json),
+        "status": "no_tissue_detected",
+        "reason": reason,
+    }
 
 
 def _batch_slide_id(path: str | Path) -> str:
@@ -450,7 +513,7 @@ def predict_hybrid_from_wsi(
     write_custom_wsi_manifest(prepared_wsi.parent, manifest_csv, mpp=mpp)
     trident_job_dir = work_dir / "trident" / f"{patch_encoder}_mag{mag}_ps{patch_size}"
     slide_stem = prepared_wsi.stem
-    feature_h5 = _find_single_feature_h5(trident_job_dir, slide_stem) if trident_job_dir.exists() else None
+    feature_h5 = _find_single_feature_h5(trident_job_dir, slide_stem, required=False) if trident_job_dir.exists() else None
     trident_reused = feature_h5 is not None and feature_h5.exists()
     if feature_h5 is None or not feature_h5.exists():
         run_trident_batch(
@@ -464,6 +527,57 @@ def predict_hybrid_from_wsi(
             task="all",
             gpu=gpu,
         )
+        coords_h5 = _find_single_coords_h5(trident_job_dir, slide_stem)
+        if coords_h5 is None:
+            slide_id = normalize_slide_id_from_wsi(prepared_wsi)
+            payload = _write_no_tissue_outputs(
+                output_dir=output_dir,
+                slide_id=slide_id,
+                task=task,
+                slide_threshold=slide_threshold,
+                reason="TRIDENT did not produce tissue coordinates for this slide.",
+            )
+            payload["feature_h5"] = None
+            payload["prepared_wsi"] = str(prepared_wsi)
+            payload["torch_device"] = None
+            payload["trident_job_dir"] = str(trident_job_dir)
+            payload["trident_reused"] = False
+            payload["slide_threshold"] = float(slide_threshold)
+            provenance_json = output_dir / "hybrid_inference_provenance.json"
+            _write_inference_provenance(
+                provenance_json,
+                {
+                    "input_wsi": str(Path(input_wsi)),
+                    "prepared_wsi": str(prepared_wsi),
+                    "predictions_csv": payload["predictions_csv"],
+                    "slide_summary_json": payload["slide_summary_json"],
+                    "qc_results_json": payload["qc_results_json"],
+                    "feature_h5": None,
+                    "trident_dir": str(Path(trident_dir)),
+                    "trident_job_dir": str(trident_job_dir),
+                    "trident_gpu_index": gpu,
+                    "trident_reused": False,
+                    "patch_encoder": patch_encoder,
+                    "mag": int(mag),
+                    "patch_size": int(patch_size),
+                    "patch_size_level0": int(patch_size_level0),
+                    "target_patch_size": int(target_patch_size),
+                    "mpp": float(mpp),
+                    "quality": int(quality),
+                    "checkpoint_path": str(Path(checkpoint_path)),
+                    "scaler_path": str(Path(scaler_path)),
+                    "selection_json": str(Path(selection_json)),
+                    "model_dir": str(Path(model_dir)) if model_dir is not None else None,
+                    "model_manifest_path": str(Path(model_manifest_path)) if model_manifest_path is not None else None,
+                    "task": task.value,
+                    "torch_device": None,
+                    "slide_threshold": float(slide_threshold),
+                    "status": "no_tissue_detected",
+                    "reason": "TRIDENT did not produce tissue coordinates for this slide.",
+                },
+            )
+            payload["provenance_json"] = str(provenance_json)
+            return payload
         feature_h5 = _find_single_feature_h5(trident_job_dir, slide_stem)
         trident_reused = False
     meta_frame, X_raw = _extract_handcrafted_from_wsi_and_h5(

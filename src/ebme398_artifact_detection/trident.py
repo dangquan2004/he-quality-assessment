@@ -76,11 +76,14 @@ def run_trident_batch(
 ) -> None:
     trident_repo = Path(trident_repo)
     script = trident_repo / "run_batch_of_slides.py"
+    runner = Path(__file__).with_name("trident_runner.py")
     if not script.exists():
         raise FileNotFoundError(f"TRIDENT entrypoint not found: {script}")
     cmd = [
         sys.executable,
-        str(script),
+        str(runner),
+        "--trident-repo",
+        str(trident_repo),
         "--task",
         task,
         "--wsi_dir",
@@ -95,6 +98,8 @@ def run_trident_batch(
         str(mag),
         "--patch_size",
         str(patch_size),
+        "--max-workers",
+        "0",
     ]
     if gpu is not None:
         cmd.extend(["--gpu", str(gpu)])
