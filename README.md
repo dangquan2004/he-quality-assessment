@@ -258,128 +258,54 @@ Use matching artifacts from the same model run.
 
 ## Training Overview
 
-Inference is the main deployable surface. Training is still available, but it is easier to think about in four phases.
+Inference is the main deployable surface. Most users can ignore this section.
 
-### 1. Preprocess WSI And Run TRIDENT
+For research use, training follows four phases:
+
+1. Preprocess WSI and run TRIDENT
+   - convert raw slides with `convert-wsi`
+   - build a manifest with `build-manifest`
+   - extract embeddings with `run-trident`
+2. Build tile and handcrafted feature data
+   - cache tiles with `cache-tiles`
+   - extract KBA features with `extract-handcrafted`
+3. Train baselines
+   - handcrafted model with `train-sklearn`
+   - CNN baseline with `train-resnet`
+   - frozen-embedding baseline with `train-embedding --source-kind h5`
+4. Train a fusion model
+   - fit feature selection with `fit-fusion-selection`
+   - materialize fused inputs with `apply-fusion-selection`
+   - train the downstream head with `train-embedding --source-kind npz`
+
+Representative commands:
 
 ```bash
-he-quality convert-wsi \
-  --dataset-dir data/raw_wsi \
-  --output-dir data/wsi_pyr
+# 1. Preprocess and run TRIDENT
+he-quality convert-wsi --dataset-dir data/raw_wsi --output-dir data/wsi_pyr
+he-quality build-manifest --wsi-dir data/wsi_pyr --output-csv data/manifests/custom_wsi.csv --mpp 0.25
+he-quality run-trident --trident-dir external/TRIDENT --wsi-dir data/wsi_pyr --custom-wsi-csv data/manifests/custom_wsi.csv --job-dir outputs/trident_uni --patch-encoder uni_v2 --mag 10 --patch-size 512
 
-he-quality build-manifest \
-  --wsi-dir data/wsi_pyr \
-  --output-csv data/manifests/custom_wsi.csv \
-  --mpp 0.25
+# 2. Build handcrafted features
+he-quality cache-tiles --wsi-dir data/wsi_pyr --label-dir data/labels --splits-json configs/splits/sr040_seed42_split.json --task binary --tile-cache-dir artifacts/tile_cache --wsi-cache-dir artifacts/wsi_cache
+he-quality extract-handcrafted --meta-csv artifacts/tile_cache/train_meta.csv --output-csv artifacts/features/g1_kba_train.csv
 
-git clone https://github.com/mahmoodlab/TRIDENT.git external/TRIDENT
+# 3. Train a baseline
+he-quality train-embedding --output-dir outputs/embedding_mlp --task binary --source-kind h5 --feature-dir outputs/trident_uni/10x_512px_0px_overlap/features_uni_v2 --label-dir data/labels --splits-json configs/splits/sr040_seed42_split.json
 
-he-quality run-trident \
-  --trident-dir external/TRIDENT \
-  --wsi-dir data/wsi_pyr \
-  --custom-wsi-csv data/manifests/custom_wsi.csv \
-  --job-dir outputs/trident_uni \
-  --patch-encoder uni_v2 \
-  --mag 10 \
-  --patch-size 512
+# 4. Train a fusion model
+he-quality fit-fusion-selection --hc-csv artifacts/features/g1_kba_train.csv --h5-dir outputs/trident_uni/10x_512px_0px_overlap/features_uni_v2 --selection-json artifacts/fusion/selection.json --task binary
+he-quality apply-fusion-selection --hc-csv artifacts/features/g1_kba_train.csv --h5-dir outputs/trident_uni/10x_512px_0px_overlap/features_uni_v2 --selection-json artifacts/fusion/selection.json --output-dir artifacts/fusion/train
+he-quality train-embedding --output-dir outputs/fusion_mlp --task binary --source-kind npz --train-dir artifacts/fusion/train --val-dir artifacts/fusion/val --test-dir artifacts/fusion/test
 ```
 
-### 2. Build Tile And Handcrafted Features
-
-Expected per-slide label CSV:
+Expected per-slide label CSV for training:
 
 - filename stem matches the WSI stem
 - contains `x`
 - contains `y` or `y0`
 - contains `label` or `label_collapsed`
 - optional `idx`
-
-```bash
-he-quality cache-tiles \
-  --wsi-dir data/wsi_pyr \
-  --label-dir data/labels \
-  --splits-json configs/splits/sr040_seed42_split.json \
-  --task binary \
-  --tile-cache-dir artifacts/tile_cache \
-  --wsi-cache-dir artifacts/wsi_cache
-
-he-quality extract-handcrafted \
-  --meta-csv artifacts/tile_cache/train_meta.csv \
-  --output-csv artifacts/features/g1_kba_train.csv
-```
-
-### 3. Train Baselines
-
-Handcrafted:
-
-```bash
-he-quality train-sklearn \
-  --train-csv artifacts/features/g1_kba_train.csv \
-  --val-csv artifacts/features/g1_kba_val.csv \
-  --test-csv artifacts/features/g1_kba_test.csv \
-  --output-dir outputs/handcrafted_svm \
-  --task binary \
-  --balance-train
-```
-
-ResNet:
-
-```bash
-he-quality train-resnet \
-  --train-meta-csv artifacts/tile_cache/train_meta.csv \
-  --val-meta-csv artifacts/tile_cache/val_meta.csv \
-  --test-meta-csv artifacts/tile_cache/test_meta.csv \
-  --output-dir outputs/resnet_scratch \
-  --task binary \
-  --arch resnet50 \
-  --epochs 20
-```
-
-Frozen embeddings:
-
-```bash
-he-quality train-embedding \
-  --output-dir outputs/embedding_mlp \
-  --task binary \
-  --source-kind h5 \
-  --feature-dir outputs/trident_uni/10x_512px_0px_overlap/features_uni_v2 \
-  --label-dir data/labels \
-  --splits-json configs/splits/sr040_seed42_split.json
-```
-
-### 4. Train A Fusion Model
-
-Fit feature selection:
-
-```bash
-he-quality fit-fusion-selection \
-  --hc-csv artifacts/features/g1_kba_train.csv \
-  --h5-dir outputs/trident_uni/10x_512px_0px_overlap/features_uni_v2 \
-  --selection-json artifacts/fusion/selection.json \
-  --task binary
-```
-
-Apply it:
-
-```bash
-he-quality apply-fusion-selection \
-  --hc-csv artifacts/features/g1_kba_train.csv \
-  --h5-dir outputs/trident_uni/10x_512px_0px_overlap/features_uni_v2 \
-  --selection-json artifacts/fusion/selection.json \
-  --output-dir artifacts/fusion/train
-```
-
-Train the downstream head:
-
-```bash
-he-quality train-embedding \
-  --output-dir outputs/fusion_mlp \
-  --task binary \
-  --source-kind npz \
-  --train-dir artifacts/fusion/train \
-  --val-dir artifacts/fusion/val \
-  --test-dir artifacts/fusion/test
-```
 
 ## Labels
 
