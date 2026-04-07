@@ -4,7 +4,7 @@ Python package and CLI for the recovered `EBME398_ArtifactDetection` workflow.
 
 This repo currently has one clear deployment path:
 
-- `S4_new` multiclass hybrid inference
+- whole-slide quality-control inference
 
 That path takes either:
 
@@ -92,9 +92,9 @@ If you prefer environment variables:
 export HF_TOKEN=your_hugging_face_token
 ```
 
-### Step 5. Make Sure The Recovered Artifacts Exist
+### Step 5. Make Sure The Model Artifacts Exist
 
-`run-qc` expects the recovered `working_dir` tree for the `S4_new` preset.
+`run-qc` expects the model `working_dir` tree.
 
 Default location inside this repo:
 
@@ -102,7 +102,7 @@ Default location inside this repo:
 source/working_dir
 ```
 
-If your recovered artifacts live elsewhere, pass:
+If your model artifacts live elsewhere, pass:
 
 ```bash
 --artifact-root /path/to/working_dir
@@ -128,7 +128,7 @@ If TRIDENT is not at `external/TRIDENT`:
 he-quality doctor --trident-dir /path/to/TRIDENT
 ```
 
-If the recovered artifacts are not at `source/working_dir`:
+If the model artifacts are not at `source/working_dir`:
 
 ```bash
 he-quality doctor --artifact-root /path/to/working_dir
@@ -140,7 +140,7 @@ The doctor command checks:
 - `vips` on `PATH`
 - TRIDENT callable from the current Python environment
 - Hugging Face authentication
-- recovered `S4_new` artifacts
+- QC model artifacts
 
 ### Step 7. Run Quality Control
 
@@ -166,7 +166,7 @@ If TRIDENT is not at `external/TRIDENT`, add:
 --trident-dir /path/to/TRIDENT
 ```
 
-If the recovered artifacts are not at `source/working_dir`, add:
+If the model artifacts are not at `source/working_dir`, add:
 
 ```bash
 --artifact-root /path/to/working_dir
@@ -176,7 +176,7 @@ If the recovered artifacts are not at `source/working_dir`, add:
 
 - converts raw TIFF-like WSIs into pyramidal TIFF when needed
 - runs TRIDENT feature extraction with `uni_v2` or `conch_v1`
-- applies the recovered `S4_new` multiclass quality-control model
+- applies the packaged quality-control model
 - writes tile-level and slide-level QC outputs
 - still exposes training utilities for the recovered research workflow
 
@@ -222,9 +222,9 @@ Common failure points:
 - OpenSlide system libraries missing
 - TRIDENT cloned but not installed into the current Python environment
 - missing Hugging Face auth for `uni_v2`
-- missing recovered `working_dir` artifacts
+- missing model `working_dir` artifacts
 - multiple files in the input folder resolving to the same slide ID
-- using the multihead `S4_new` checkpoint with the current single-head CLI
+- mixing checkpoint, scaler, and selection files from different runs in advanced mode
 
 When in doubt, rerun:
 
@@ -238,14 +238,6 @@ If you need full manual control, the lower-level command is:
 
 - `infer-hybrid-wsi`
 
-The current deployable model is the recovered `S4_new` multiclass hybrid pipeline.
-
-The matching recovered `S4_new` artifact trio is:
-
-- selection: `10x_512px_0px_overlap/experiments/Multi_class/S4_new/spearman_ovr_select_thr0.04.json`
-- scaler: `10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/scaler.joblib`
-- checkpoint: `10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/best_pt_mlp_multiclass.pt`
-
 Advanced manual artifact wiring:
 
 ```bash
@@ -253,16 +245,16 @@ he-quality infer-hybrid-wsi \
   --input-path /path/to/slide.ome.tiff \
   --output-dir /path/to/output/slide_name \
   --trident-dir external/TRIDENT \
-  --checkpoint-path source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/best_pt_mlp_multiclass.pt \
-  --scaler-path source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/scaler.joblib \
-  --selection-json source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/spearman_ovr_select_thr0.04.json \
+  --checkpoint-path /path/to/checkpoint.pt \
+  --scaler-path /path/to/scaler.joblib \
+  --selection-json /path/to/selection.json \
   --task multiclass \
   --patch-encoder uni_v2 \
   --model-kind mlp \
   --device auto
 ```
 
-Use `best_pt_mlp_multiclass.pt`, not the multihead checkpoint, for the current CLI.
+Use matching artifacts from the same model run.
 
 ## Training Overview
 

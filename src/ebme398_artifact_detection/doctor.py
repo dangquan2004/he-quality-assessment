@@ -167,10 +167,10 @@ def check_artifacts(*, artifact_root: str | Path | None, preset_name: str = "s4_
         root = resolve_artifact_root(artifact_root)
     except FileNotFoundError as exc:
         return CheckResult(
-            name="Recovered artifacts",
+            name="QC model artifacts",
             ok=False,
             summary=str(exc),
-            fix="Put the recovered `working_dir` at `source/working_dir` or pass `--artifact-root /path/to/working_dir`.",
+            fix="Put the model `working_dir` at `source/working_dir` or pass `--artifact-root /path/to/working_dir`.",
         )
     required = [
         root / preset.selection_relpath,
@@ -180,15 +180,15 @@ def check_artifacts(*, artifact_root: str | Path | None, preset_name: str = "s4_
     missing = [path for path in required if not path.exists()]
     if missing:
         return CheckResult(
-            name="Recovered artifacts",
+            name="QC model artifacts",
             ok=False,
-            summary="missing required preset artifacts: " + ", ".join(str(path) for path in missing),
-            fix="Make sure the recovered `working_dir` contains the `S4_new` selection, scaler, and checkpoint files.",
+            summary="missing required quality-control model artifacts: " + ", ".join(str(path) for path in missing),
+            fix="Make sure the model `working_dir` contains the required selection, scaler, and checkpoint files.",
         )
     return CheckResult(
-        name="Recovered artifacts",
+        name="QC model artifacts",
         ok=True,
-        summary=f"found preset artifacts under {root}",
+        summary=f"found required model artifacts under {root}",
     )
 
 
