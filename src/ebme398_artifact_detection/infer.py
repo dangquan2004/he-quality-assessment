@@ -16,6 +16,7 @@ from .handcrafted import extract_kba_features
 from .fusion import load_h5_features
 from .labels import Task, task_labels
 from .metrics import dump_json, evaluate_predictions
+from .selection import load_selection_payload, selection_embedding_keep, selection_feature_key, selection_hc_keep
 from .tiles import TileCachingConfig, pick_level_for_patch
 from .train_torch import KANClassifier, MLPClassifier, _logits_to_probabilities, resolve_torch_device
 from .trident import run_trident_batch, write_custom_wsi_manifest
@@ -113,11 +114,11 @@ def _load_hybrid_rows_from_h5(
     selection_json: str | Path,
     label_column: str = "y_label",
 ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray | None]:
-    selection = json.loads(Path(selection_json).read_text())
+    selection = load_selection_payload(selection_json)
     hc_cols_all = selection["hc_cols_all"]
-    hc_keep = np.asarray(selection["hc_keep_idx"], dtype=int)
-    emb_keep = np.asarray(selection["embedding_keep_idx"], dtype=int)
-    feature_key = selection.get("feature_key", "features")
+    hc_keep = selection_hc_keep(selection)
+    emb_keep = selection_embedding_keep(selection)
+    feature_key = selection_feature_key(selection)
 
     df = ensure_slide_id_column(pd.read_csv(hc_csv))
     if "path" not in df.columns:
@@ -331,11 +332,11 @@ def _extract_handcrafted_from_wsi_and_h5(
     patch_size_level0: int,
     target_patch_size: int,
 ) -> tuple[pd.DataFrame, np.ndarray]:
-    selection = json.loads(Path(selection_json).read_text())
+    selection = load_selection_payload(selection_json)
     hc_cols_all = selection["hc_cols_all"]
-    hc_keep = np.asarray(selection["hc_keep_idx"], dtype=int)
-    emb_keep = np.asarray(selection["embedding_keep_idx"], dtype=int)
-    feature_key = selection.get("feature_key", "features")
+    hc_keep = selection_hc_keep(selection)
+    emb_keep = selection_embedding_keep(selection)
+    feature_key = selection_feature_key(selection)
     embeddings, coords = load_h5_features(h5_path, feature_key=feature_key)
     if coords is None:
         raise KeyError(f"{h5_path} does not contain coords; raw WSI hybrid inference needs TRIDENT coords")

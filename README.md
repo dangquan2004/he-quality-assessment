@@ -1,30 +1,40 @@
-# H&E quality assesment
+# H&E Quality Assessment
 
-Installable Python scripts for the recovered EBME398 artifact-detection workflow, translated out of notebooks into a normal package and CLI.
+Installable Python tooling for the recovered `EBME398_ArtifactDetection` workflow. This repo translates the original notebook pipeline into a normal package and CLI for preprocessing, training, and single-slide hybrid inference.
 
-This repo keeps the original scientific intent, but it does not pretend to fully replace every notebook interaction. In particular, the manual tile-labeling notebook logic was not kept as a notebook dependency; the package assumes you already have tile-level CSV labels for training.
+## What This Repo Is For
 
-## What This Repo Covers
+- WSI preprocessing into pyramidal TIFF
+- TRIDENT feature extraction with `uni_v2` or `conch_v1`
+- tile caching for image-model training
+- handcrafted feature extraction
+- frozen-feature and fusion-model training
+- single-slide hybrid inference from raw WSI input
 
-- Whole-slide preprocessing for pyramidal TIFF export.
-- TRIDENT-based patch extraction and feature generation with `uni_v2` or `conch_v1`.
-- Tile caching for image-level training.
-- Handcrafted feature extraction from cached tiles.
-- Frozen-feature training from H5 embeddings or fused NPZ features.
-- End-to-end ResNet training from cached tiles.
-- Binary and multiclass label normalization recovered from the original notebooks.
+This repo does not re-pretrain UNI or CONCH. Those remain external dependencies.
 
-## What "Train From Scratch" Means Here
+## Current Deployment Target
 
-- For image training, `train-resnet` trains a downstream classifier from scratch by default. Add `--pretrained` only if you want ImageNet initialization.
-- For embedding workflows, `train-embedding` trains the downstream head from scratch on frozen UNI, CONCH, or fused features.
-- This repo does **not** re-pretrain UNI or CONCH themselves. Those foundation models remain external dependencies.
+The recommended deployment path is now the recovered `S4_new` multiclass hybrid model, not the old `G4` binary path.
 
-## External Dependencies
+Reason:
 
-Recommended Python: `3.10+`.
+- `S4_new` has a recoverable checkpoint, scaler, and feature-selection artifact set
+- `G4` does not currently have a recoverable matching selection file
 
-System packages:
+For the recovered local artifacts, the matching `S4_new` trio is:
+
+- selection: `source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/spearman_ovr_select_thr0.04.json`
+- scaler: `source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/scaler.joblib`
+- checkpoint: `source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/best_pt_mlp_multiclass.pt`
+
+The repo now supports both the current `embedding_keep_idx` format and the older recovered `uni_keep_idx` format in selection JSON files.
+
+## Installation
+
+Recommended Python: `3.10+`
+
+System dependencies:
 
 - `openslide`
 - `libvips`
@@ -53,19 +63,7 @@ python -m pip install '.[kan]'
 python -m pip install '.[dev]'
 ```
 
-You can then run either the installed CLI:
-
-```bash
-he-quality --help
-```
-
-or the plain Python script entrypoint:
-
-```bash
-python scripts/he_quality.py --help
-```
-
-Quick preflight checks:
+Basic checks:
 
 ```bash
 python -c "import openslide; print(openslide.__library_version__)"
@@ -74,69 +72,51 @@ he-quality --help
 python scripts/he_quality.py --help
 ```
 
-Important install note:
+Important:
 
-- `pip install .` installs the Python package only.
-- TRIDENT-based commands still require a separate TRIDENT checkout.
-- `uni_v2` requires approved Hugging Face access to `MahmoodLab/UNI2-h` plus user authentication before TRIDENT can download weights.
-- CONCH weights are also external gated dependencies and are not installed by this repo.
-- `train-sklearn --estimator xgb` requires `python -m pip install '.[xgb]'`.
-- `train-embedding --model-kind kan` requires `python -m pip install '.[kan]'`.
-
-## Repository Layout
-
-```text
-src/ebme398_artifact_detection/   package code
-scripts/he_quality.py             script entrypoint
-configs/splits/                   reusable split JSON recovered from source runs
-docs/recovered_workflow.md        mapping from old notebooks to new commands
-source/                           downloaded raw project material, ignored by git
-analysis/                         notebook extraction scratch space, ignored by git
-```
+- `pip install .` installs only the Python package
+- TRIDENT must be checked out separately
+- `uni_v2` requires gated Hugging Face access to `MahmoodLab/UNI2-h`
+- `conch_v1` also depends on gated external model access
+- `train-sklearn --estimator xgb` needs `.[xgb]`
+- `train-embedding --model-kind kan` needs `.[kan]`
 
 ## Inference
 
-### What This Inference Pipeline Does
+### What The Inference Command Does
 
-The deployed inference path in this repo is the fused handcrafted + embedding pipeline only.
+`infer-hybrid-wsi` performs single-slide hybrid inference:
 
-Given one raw WSI such as `.ome.tiff`, the command:
+1. convert raw WSI to pyramidal TIFF if needed
+2. run TRIDENT on that slide
+3. extract handcrafted features from the same TRIDENT coordinates
+4. apply the saved fusion selection
+5. apply the saved scaler
+6. run the saved downstream classifier
+7. write tile predictions, slide summary, and provenance metadata
 
-- converts the slide to pyramidal TIFF when needed
-- runs TRIDENT on that single slide
-- extracts handcrafted features from the same TRIDENT coordinates
-- applies the saved fusion feature selection
-- loads the saved hybrid classifier and scaler
-- writes tile-level predictions, slide-level summary output, and a provenance JSON
+### Required Inputs
 
-### Required Inputs Before Inference
+You need:
 
-You need all of the following:
-
-- a raw WSI file such as `sample.ome.tiff`
-- a trained hybrid checkpoint such as `embedding_classifier_best.pt`
-- the matching scaler `.joblib`
-- the matching fusion `selection.json`
+- one raw WSI such as `.ome.tiff`
 - a local TRIDENT checkout
-- system access to `openslide` and `vips`
+- a matching checkpoint `.pt`
+- a matching scaler `.joblib`
+- a matching fusion selection JSON
+- OpenSlide and `vips`
 
-The checkpoint, scaler, selection JSON, and embedding encoder must all come from the same trained hybrid model family.
+The checkpoint, scaler, selection JSON, and encoder choice must come from the same model family.
 
 ### Hugging Face Authentication For `uni_v2`
 
-If you run inference with:
+If you use:
 
 ```bash
 --patch-encoder uni_v2
 ```
 
-then TRIDENT will need access to the gated Hugging Face model `MahmoodLab/UNI2-h`.
-
-That means the user must have:
-
-- a Hugging Face account
-- approved access to `MahmoodLab/UNI2-h`
-- an authenticated environment before running TRIDENT
+then TRIDENT needs access to the gated Hugging Face model `MahmoodLab/UNI2-h`.
 
 Typical setup:
 
@@ -151,80 +131,80 @@ or:
 export HF_TOKEN=your_hugging_face_token
 ```
 
-If that authentication step is missing, TRIDENT-based `uni_v2` extraction will fail even if this repo itself installs correctly.
+Without Hugging Face authentication, `uni_v2` extraction will fail even if this repo is installed correctly.
 
-### Single-Slide Hybrid Inference Example
+### Recommended `S4_new` Multiclass Example
+
+Generic command shape:
 
 ```bash
 he-quality infer-hybrid-wsi \
   --input-wsi data/inference/SR999.ome.tiff \
   --output-dir outputs/inference/SR999 \
   --trident-dir external/TRIDENT \
-  --checkpoint-path outputs/fusion_mlp/embedding_classifier_best.pt \
-  --scaler-path outputs/fusion_mlp/embedding_classifier_scaler.joblib \
-  --selection-json artifacts/fusion/selection.json \
-  --task binary \
+  --checkpoint-path path/to/best_pt_mlp_multiclass.pt \
+  --scaler-path path/to/scaler.joblib \
+  --selection-json path/to/spearman_ovr_select_thr0.04.json \
+  --task multiclass \
   --patch-encoder uni_v2 \
-  --device auto \
-  --slide-threshold 0.5
+  --model-kind mlp \
+  --device auto
 ```
 
-### Inference Outputs
+For the recovered local artifacts in this repo clone, the concrete files are:
 
-- `outputs/inference/SR999/hybrid_tile_predictions.csv`
-- `outputs/inference/SR999/hybrid_slide_summary.json`
-- `outputs/inference/SR999/hybrid_inference_provenance.json`
-- `outputs/inference/SR999/hybrid_inference/prepared_wsi/*.pyr.tif`
-- `outputs/inference/SR999/hybrid_inference/trident/<encoder>_mag<mag>_ps<patch_size>/**/<slide>.h5`
+```bash
+he-quality infer-hybrid-wsi \
+  --input-wsi data/inference/SR999.ome.tiff \
+  --output-dir outputs/inference/SR999 \
+  --trident-dir external/TRIDENT \
+  --checkpoint-path source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/best_pt_mlp_multiclass.pt \
+  --scaler-path source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/scaler.joblib \
+  --selection-json source/working_dir/10x_512px_0px_overlap/experiments/Multi_class/S4_new/spearman_ovr_select_thr0.04.json \
+  --task multiclass \
+  --patch-encoder uni_v2 \
+  --model-kind mlp \
+  --device auto
+```
 
-### Inference Constraints
+Use `best_pt_mlp_multiclass.pt`, not the multihead checkpoint, for the current CLI path.
 
-- The embedding source used at inference must match the encoder used during training.
-- Fusion alignment is validated against TRIDENT coordinates when available.
-- `--device` controls the downstream torch classifier only.
-- TRIDENT extraction is still controlled by TRIDENT itself and the optional `--gpu` flag.
-- `--slide-threshold` controls the binary slide-level summary threshold explicitly.
-- This command does not run dual-encoder UNI+CONCH fusion directly from a raw slide in one step.
+### Outputs
 
-### Common Inference Failure Points
+- `hybrid_tile_predictions.csv`
+- `hybrid_slide_summary.json`
+- `hybrid_inference_provenance.json`
+- prepared pyramidal WSI under `hybrid_inference/prepared_wsi/`
+- TRIDENT features under `hybrid_inference/trident/<encoder>_mag<mag>_ps<patch_size>/`
 
-- missing `vips` on `PATH`
-- missing OpenSlide system libraries
-- missing or wrong TRIDENT checkout
+### Common Failure Points
+
+- `vips` missing from `PATH`
+- OpenSlide system libraries missing
+- wrong or missing TRIDENT checkout
 - missing Hugging Face auth for `uni_v2`
-- mismatched checkpoint, scaler, and selection JSON
-- wrong encoder choice at inference time relative to training
+- mismatched checkpoint / scaler / selection JSON
+- using the multihead `S4_new` checkpoint with the current single-head CLI
+- using artifacts from different tasks or thresholds
 
-## Quickstart
+## Training Overview
 
-This section covers training and feature-preparation workflow. Inference is documented in the dedicated section above.
+Inference is the main deployable surface. Training remains available, but the workflow is easier to follow as phases rather than one long numbered list.
 
-### 1. Convert raw WSI files to pyramidal TIFF
+### 1. Preprocess WSI And Run TRIDENT
 
 ```bash
 he-quality convert-wsi \
   --dataset-dir data/raw_wsi \
   --output-dir data/wsi_pyr
-```
 
-### 2. Build the TRIDENT manifest
-
-```bash
 he-quality build-manifest \
   --wsi-dir data/wsi_pyr \
   --output-csv data/manifests/custom_wsi.csv \
   --mpp 0.25
-```
 
-### 3. Run TRIDENT with UNI or CONCH
-
-```bash
 git clone https://github.com/mahmoodlab/TRIDENT.git external/TRIDENT
-```
 
-UNI:
-
-```bash
 he-quality run-trident \
   --trident-dir external/TRIDENT \
   --wsi-dir data/wsi_pyr \
@@ -235,31 +215,9 @@ he-quality run-trident \
   --patch-size 512
 ```
 
-CONCH:
+### 2. Build Tile And Handcrafted Feature Data
 
-```bash
-he-quality run-trident \
-  --trident-dir external/TRIDENT \
-  --wsi-dir data/wsi_pyr \
-  --custom-wsi-csv data/manifests/custom_wsi.csv \
-  --job-dir outputs/trident_conch \
-  --patch-encoder conch_v1 \
-  --mag 10 \
-  --patch-size 512
-```
-
-If you extracted both encoders on the same tiles, merge them:
-
-```bash
-he-quality merge-embeddings \
-  --feature-dir-a outputs/trident_uni/10x_512px_0px_overlap/features_uni_v2 \
-  --feature-dir-b outputs/trident_conch/10x_512px_0px_overlap/features_conch_v1 \
-  --output-dir outputs/features_uni_conch
-```
-
-### 4. Cache labeled tiles for image training
-
-Expected label CSV contract per slide:
+Expected per-slide label CSV:
 
 - filename stem matches the WSI stem
 - contains `x`
@@ -275,25 +233,15 @@ he-quality cache-tiles \
   --task binary \
   --tile-cache-dir artifacts/tile_cache \
   --wsi-cache-dir artifacts/wsi_cache
-```
 
-This produces `train_meta.csv`, `val_meta.csv`, and `test_meta.csv`.
-
-### 5. Handcrafted baseline
-
-```bash
 he-quality extract-handcrafted \
   --meta-csv artifacts/tile_cache/train_meta.csv \
   --output-csv artifacts/features/g1_kba_train.csv
-
-he-quality extract-handcrafted \
-  --meta-csv artifacts/tile_cache/val_meta.csv \
-  --output-csv artifacts/features/g1_kba_val.csv
-
-he-quality extract-handcrafted \
-  --meta-csv artifacts/tile_cache/test_meta.csv \
-  --output-csv artifacts/features/g1_kba_test.csv
 ```
+
+### 3. Train Baselines
+
+Handcrafted:
 
 ```bash
 he-quality train-sklearn \
@@ -305,9 +253,7 @@ he-quality train-sklearn \
   --balance-train
 ```
 
-### 6. ResNet image model
-
-Train from scratch:
+ResNet:
 
 ```bash
 he-quality train-resnet \
@@ -320,23 +266,7 @@ he-quality train-resnet \
   --epochs 20
 ```
 
-Fine-tune from ImageNet initialization:
-
-```bash
-he-quality train-resnet \
-  --train-meta-csv artifacts/tile_cache/train_meta.csv \
-  --val-meta-csv artifacts/tile_cache/val_meta.csv \
-  --test-meta-csv artifacts/tile_cache/test_meta.csv \
-  --output-dir outputs/resnet_imagenet \
-  --task binary \
-  --arch resnet50 \
-  --epochs 20 \
-  --pretrained
-```
-
-### 7. Frozen-feature models
-
-Train directly from H5 embeddings:
+Frozen embeddings:
 
 ```bash
 he-quality train-embedding \
@@ -348,22 +278,9 @@ he-quality train-embedding \
   --splits-json configs/splits/sr040_seed42_split.json
 ```
 
-Use KAN instead of MLP:
+### 4. Train A Fusion Model
 
-```bash
-he-quality train-embedding \
-  --output-dir outputs/embedding_kan \
-  --task binary \
-  --source-kind h5 \
-  --model-kind kan \
-  --feature-dir outputs/trident_uni/10x_512px_0px_overlap/features_uni_v2 \
-  --label-dir data/labels \
-  --splits-json configs/splits/sr040_seed42_split.json
-```
-
-### 8. Handcrafted + embedding fusion
-
-Fit feature selection on the training set:
+Fit feature selection:
 
 ```bash
 he-quality fit-fusion-selection \
@@ -373,7 +290,7 @@ he-quality fit-fusion-selection \
   --task binary
 ```
 
-Apply it to train, val, and test:
+Apply it:
 
 ```bash
 he-quality apply-fusion-selection \
@@ -383,7 +300,7 @@ he-quality apply-fusion-selection \
   --output-dir artifacts/fusion/train
 ```
 
-Then train on the fused NPZ files:
+Train the downstream head:
 
 ```bash
 he-quality train-embedding \
@@ -395,28 +312,34 @@ he-quality train-embedding \
   --test-dir artifacts/fusion/test
 ```
 
-## Label Semantics Recovered From The Source
+## Repository Layout
 
-- Binary: `clean` vs `unclean`
-- Multiclass: `clean`, `tissue_damage`, `blurry+fold`
+```text
+src/ebme398_artifact_detection/   package code
+scripts/he_quality.py             script entrypoint
+configs/splits/                   reusable split JSON
+docs/recovered_workflow.md        notebook-to-package mapping
+source/                           recovered local artifacts, ignored by git
+analysis/                         scratch outputs, ignored by git
+```
 
-Supported normalization includes notebook typos such as `tissue_damge` and order variants such as `fold+blur`.
+## Labels
 
-## TRIDENT, UNI, and CONCH References
+- binary: `clean` vs `unclean`
+- multiclass: `clean`, `tissue_damage`, `blurry+fold`
 
-- TRIDENT framework: <https://github.com/mahmoodlab/TRIDENT>
+The code normalizes notebook-era variants such as `tissue_damge` and `fold+blur`.
+
+## External References
+
+- TRIDENT: <https://github.com/mahmoodlab/TRIDENT>
 - UNI2-h model card: <https://huggingface.co/MahmoodLab/UNI2-h>
 - UNI code repo: <https://github.com/mahmoodlab/UNI>
 - CONCH model card: <https://huggingface.co/MahmoodLab/CONCH>
 - CONCH code repo: <https://github.com/mahmoodlab/CONCH>
 
-Important constraint from the official model cards:
-
-- `uni_v2` in this workflow depends on gated Hugging Face access to `MahmoodLab/UNI2-h`.
-- UNI and CONCH weights are gated on Hugging Face.
-- Both are released for non-commercial academic research use.
-- Users should request access with an institutional email and should not redistribute the weights.
+Both UNI and CONCH are gated for non-commercial academic research use and should not be redistributed.
 
 ## Recovery Notes
 
-See `docs/recovered_workflow.md` for how the original notebooks were translated into package modules and CLI commands.
+See `docs/recovered_workflow.md` for the notebook-to-package mapping and recovered data contracts.

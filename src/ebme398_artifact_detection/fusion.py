@@ -9,6 +9,7 @@ import pandas as pd
 
 from .alignment import align_handcrafted_rows_to_feature_rows, ensure_slide_id_column
 from .labels import Task
+from .selection import load_selection_payload, selection_embedding_keep, selection_feature_key, selection_hc_keep
 
 
 def load_h5_features(h5_path: str | Path, feature_key: str = "features") -> tuple[np.ndarray, np.ndarray | None]:
@@ -111,11 +112,11 @@ def apply_selection_and_write_npz(
     *,
     label_column: str = "y_label",
 ) -> list[Path]:
-    selection = json.loads(Path(selection_json).read_text())
+    selection = load_selection_payload(selection_json)
     hc_cols = selection["hc_cols_all"]
-    hc_keep = np.asarray(selection["hc_keep_idx"], dtype=int)
-    emb_keep = np.asarray(selection["embedding_keep_idx"], dtype=int)
-    feature_key = selection.get("feature_key", "features")
+    hc_keep = selection_hc_keep(selection)
+    emb_keep = selection_embedding_keep(selection)
+    feature_key = selection_feature_key(selection)
     df = ensure_slide_id_column(pd.read_csv(hc_csv_path))
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
