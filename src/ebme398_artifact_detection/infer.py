@@ -381,6 +381,14 @@ def _write_inference_provenance(output_json: str | Path, payload: dict) -> Path:
     return dump_json(output_json, payload)
 
 
+def _write_quality_control_alias(source_json: str | Path, alias_json: str | Path) -> Path:
+    source_json = Path(source_json)
+    alias_json = Path(alias_json)
+    alias_json.parent.mkdir(parents=True, exist_ok=True)
+    alias_json.write_text(source_json.read_text())
+    return alias_json
+
+
 def _batch_slide_id(path: str | Path) -> str:
     slide_id = normalize_slide_id_from_wsi(path)
     if slide_id.endswith(".pyr"):
@@ -492,6 +500,8 @@ def predict_hybrid_from_wsi(
         binary_threshold=slide_threshold,
     )
     payload["slide_summary_json"] = str(slide_summary_json)
+    qc_results_json = _write_quality_control_alias(slide_summary_json, output_dir / "quality_control_results.json")
+    payload["qc_results_json"] = str(qc_results_json)
     payload["feature_h5"] = str(feature_h5)
     payload["prepared_wsi"] = str(prepared_wsi)
     payload["torch_device"] = device
@@ -506,6 +516,7 @@ def predict_hybrid_from_wsi(
             "prepared_wsi": str(prepared_wsi),
             "predictions_csv": str(predictions_csv),
             "slide_summary_json": str(slide_summary_json),
+            "qc_results_json": str(qc_results_json),
             "feature_h5": str(feature_h5),
             "trident_dir": str(Path(trident_dir)),
             "trident_job_dir": str(trident_job_dir),
@@ -628,8 +639,10 @@ def predict_hybrid_from_path(
             "slides": slide_payloads,
         },
     )
+    qc_results_json = _write_quality_control_alias(batch_summary_json, output_dir / "quality_control_results.json")
     return {
         "batch_summary_json": str(batch_summary_json),
+        "qc_results_json": str(qc_results_json),
         "n_slides": len(slide_payloads),
         "slides": slide_payloads,
     }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from .labels import Task
 from .presets import available_hybrid_inference_presets, get_hybrid_inference_preset, resolve_preset_artifact_path
 
@@ -144,6 +145,21 @@ def build_parser() -> argparse.ArgumentParser:
     infer_hybrid.add_argument("--gpu", type=int)
     infer_hybrid.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
     infer_hybrid.add_argument("--slide-threshold", type=float, default=0.5)
+
+    run_qc = subparsers.add_parser(
+        "run-qc",
+        help="Recommended user-facing entrypoint: feed one WSI or a folder of WSIs in and get quality-control results out.",
+    )
+    run_qc.add_argument(
+        "--input-path",
+        required=True,
+        help="Path to one WSI or a directory of WSIs.",
+    )
+    run_qc.add_argument("--output-dir", required=True)
+    run_qc.add_argument("--trident-dir", default="external/TRIDENT")
+    run_qc.add_argument("--artifact-root")
+    run_qc.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
+    run_qc.add_argument("--gpu", type=int)
 
     return parser
 
@@ -328,7 +344,7 @@ def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
         joined = ", ".join(missing)
         raise SystemExit(f"infer-hybrid-wsi is missing required arguments: {joined}. Use --preset or pass them explicitly.")
 
-    predict_hybrid_from_path(
+    payload = predict_hybrid_from_path(
         input_path=args.input_path,
         output_dir=args.output_dir,
         trident_dir=args.trident_dir,
@@ -350,6 +366,33 @@ def _handle_infer_hybrid_wsi(args: argparse.Namespace) -> None:
         device=None if args.device == "auto" else args.device,
         slide_threshold=args.slide_threshold,
     )
+    qc_results_json = payload.get("qc_results_json")
+    if qc_results_json:
+        print(f"Quality-control results written to {qc_results_json}")
+
+
+def _handle_run_qc(args: argparse.Namespace) -> None:
+    from .infer import predict_hybrid_from_path
+
+    preset = get_hybrid_inference_preset("s4_new_multiclass")
+    trident_dir = Path(args.trident_dir)
+    payload = predict_hybrid_from_path(
+        input_path=args.input_path,
+        output_dir=args.output_dir,
+        trident_dir=trident_dir,
+        checkpoint_path=resolve_preset_artifact_path(preset.checkpoint_relpath, args.artifact_root),
+        scaler_path=resolve_preset_artifact_path(preset.scaler_relpath, args.artifact_root),
+        selection_json=resolve_preset_artifact_path(preset.selection_relpath, args.artifact_root),
+        task=preset.task,
+        patch_encoder=preset.patch_encoder,
+        model_kind=preset.model_kind,
+        hidden_dim=preset.hidden_dim,
+        device=None if args.device == "auto" else args.device,
+        gpu=args.gpu,
+    )
+    qc_results_json = payload.get("qc_results_json")
+    if qc_results_json:
+        print(f"Quality-control results written to {qc_results_json}")
 
 
 COMMAND_HANDLERS = {
@@ -365,6 +408,7 @@ COMMAND_HANDLERS = {
     "train-resnet": _handle_train_resnet,
     "train-embedding": _handle_train_embedding,
     "infer-hybrid-wsi": _handle_infer_hybrid_wsi,
+    "run-qc": _handle_run_qc,
 }
 
 

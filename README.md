@@ -28,7 +28,7 @@ You do need to:
 1. install this repo
 2. install TRIDENT
 3. authenticate to Hugging Face for `uni_v2`
-4. run `infer-hybrid-wsi` on your slide or folder
+4. run `run-qc` on your slide or folder
 
 What the repo handles for you:
 
@@ -44,36 +44,44 @@ If you only want inference, do these four things:
 1. install the package and system dependencies
 2. clone TRIDENT
 3. authenticate to Hugging Face for `uni_v2`
-4. run `infer-hybrid-wsi` with the `s4_new_multiclass` preset
+4. run `run-qc`
 
 Single-slide example:
 
 ```bash
-he-quality infer-hybrid-wsi \
-  --preset s4_new_multiclass \
+he-quality run-qc \
   --input-path data/inference/SR999.ome.tiff \
-  --output-dir outputs/inference/SR999 \
-  --trident-dir external/TRIDENT \
-  --device auto
+  --output-dir outputs/inference/SR999
 ```
 
 Folder-of-slides example:
 
 ```bash
-he-quality infer-hybrid-wsi \
-  --preset s4_new_multiclass \
+he-quality run-qc \
   --input-path data/inference_wsis \
-  --output-dir outputs/inference_batch \
-  --trident-dir external/TRIDENT \
-  --device auto
+  --output-dir outputs/inference_batch
 ```
 
 For folder input, the CLI writes:
 
+- `output_dir/<slide_id>/quality_control_results.json`
 - `output_dir/<slide_id>/hybrid_tile_predictions.csv`
 - `output_dir/<slide_id>/hybrid_slide_summary.json`
 - `output_dir/<slide_id>/hybrid_inference_provenance.json`
+- `output_dir/quality_control_results.json`
 - `output_dir/hybrid_batch_summary.json`
+
+If TRIDENT is not at `external/TRIDENT`, add:
+
+```bash
+--trident-dir /path/to/TRIDENT
+```
+
+If the recovered artifacts are not at `source/working_dir`, add:
+
+```bash
+--artifact-root /path/to/working_dir
+```
 
 ## What This Repo Does
 
@@ -152,6 +160,14 @@ Make sure all of these are true:
 
 ## Inference
 
+The recommended user-facing command is:
+
+- `run-qc`
+
+The lower-level advanced command is:
+
+- `infer-hybrid-wsi`
+
 ### Deployment Model
 
 The current deployable model is the recovered `S4_new` multiclass hybrid pipeline.
@@ -167,9 +183,9 @@ The matching recovered `S4_new` artifact trio is:
 - scaler: `10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/scaler.joblib`
 - checkpoint: `10x_512px_0px_overlap/experiments/Multi_class/S4_new/results_multiclass/best_pt_mlp_multiclass.pt`
 
-The CLI preset `s4_new_multiclass` resolves those for you, so a new user does not need to manually wire them.
+`run-qc` uses the `s4_new_multiclass` preset internally, so a new user does not need to manually wire these files.
 
-### What `infer-hybrid-wsi` Does
+### What `run-qc` Does
 
 For each slide, the command:
 
@@ -245,26 +261,29 @@ Without Hugging Face authentication, `uni_v2` feature extraction will fail.
 Single slide:
 
 ```bash
-he-quality infer-hybrid-wsi \
-  --preset s4_new_multiclass \
+he-quality run-qc \
   --input-path data/inference/SR999.ome.tiff \
-  --output-dir outputs/inference/SR999 \
-  --trident-dir external/TRIDENT \
-  --device auto
+  --output-dir outputs/inference/SR999
 ```
 
 Folder of slides:
 
 ```bash
-he-quality infer-hybrid-wsi \
-  --preset s4_new_multiclass \
+he-quality run-qc \
   --input-path data/inference_wsis \
-  --output-dir outputs/inference_batch \
-  --trident-dir external/TRIDENT \
-  --device auto
+  --output-dir outputs/inference_batch
 ```
 
-Manual artifact wiring is still supported:
+If TRIDENT is not checked out at `external/TRIDENT`:
+
+```bash
+he-quality run-qc \
+  --input-path data/inference_wsis \
+  --output-dir outputs/inference_batch \
+  --trident-dir /path/to/TRIDENT
+```
+
+Advanced manual artifact wiring is still supported through `infer-hybrid-wsi`:
 
 ```bash
 he-quality infer-hybrid-wsi \
@@ -286,6 +305,7 @@ Use `best_pt_mlp_multiclass.pt`, not the multihead checkpoint, for the current C
 
 Single-slide run:
 
+- `quality_control_results.json`
 - `hybrid_tile_predictions.csv`
 - `hybrid_slide_summary.json`
 - `hybrid_inference_provenance.json`
@@ -294,10 +314,11 @@ Single-slide run:
 
 The file most users care about first is:
 
-- `hybrid_slide_summary.json`
+- `quality_control_results.json`
 
 Folder run:
 
+- one root-level `quality_control_results.json`
 - one subfolder per slide under `output_dir/<slide_id>/`
 - each subfolder contains the same single-slide outputs
 - one root-level `hybrid_batch_summary.json`
