@@ -115,6 +115,8 @@ def check_vips() -> CheckResult:
 def check_trident(trident_dir: str | Path) -> CheckResult:
     trident_dir = Path(trident_dir).expanduser().resolve()
     script = trident_dir / "run_batch_of_slides.py"
+    encoder_loader = trident_dir / "trident" / "patch_encoder_models" / "load.py"
+    segmentation_loader = trident_dir / "trident" / "segmentation_models" / "load.py"
     if not script.exists():
         return CheckResult(
             name="TRIDENT",
@@ -127,16 +129,27 @@ def check_trident(trident_dir: str | Path) -> CheckResult:
                 "python -m pip install -e ."
             ),
         )
+    missing_support = [str(path) for path in (encoder_loader, segmentation_loader) if not path.exists()]
+    if missing_support:
+        return CheckResult(
+            name="TRIDENT",
+            ok=False,
+            summary=f"TRIDENT install under {trident_dir} is missing required support files: {', '.join(missing_support)}",
+            fix=(
+                "Re-clone TRIDENT and reinstall it into the same active Python environment.\n"
+                "git clone https://github.com/mahmoodlab/TRIDENT.git external/TRIDENT\n"
+                "cd external/TRIDENT\n"
+                "python -m pip install -e ."
+            ),
+        )
     import_check = (
         "import sys; "
         f"sys.path.insert(0, {str(trident_dir)!r}); "
         "import trident; "
         "from trident import Processor; "
-        "from trident.patch_encoder_models.load import encoder_factory; "
-        "from trident.segmentation_models.load import segmentation_model_factory; "
         "print(trident.__file__)"
     )
-    ok, output = _run_command([sys.executable, "-c", import_check], cwd=trident_dir, timeout=120)
+    ok, output = _run_command([sys.executable, "-c", import_check], cwd=trident_dir, timeout=30)
     if not ok:
         return CheckResult(
             name="TRIDENT",
@@ -188,9 +201,18 @@ def check_hugging_face_auth() -> CheckResult:
             ),
         )
 
-    api = HfApi()
     try:
-        api.model_info("MahmoodLab/UNI2-h", token=token_for_hub)
+        probe = (
+            "import os; "
+            "from huggingface_hub import HfApi; "
+            "token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_HUB_TOKEN'); "
+            "token = token or True; "
+            "HfApi().model_info('MahmoodLab/UNI2-h', token=token); "
+            "print('ok')"
+        )
+        ok, output = _run_command([sys.executable, "-c", probe], timeout=20)
+        if not ok:
+            raise RuntimeError(output)
         if token_source is not None:
             summary = f"verified access to MahmoodLab/UNI2-h using {token_source}"
         else:
